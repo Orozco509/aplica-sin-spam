@@ -765,12 +765,41 @@ function describeFile(file) {
   return `${file.name} (${sizeMb} MB)`;
 }
 
+function cleanExtractedText(text) {
+  return String(text || "")
+    .replace(/\r/g, "\n")
+    .replace(/[|\\]{2,}/g, " ")
+    .replace(/[•·●]/g, "\n- ")
+    .replace(/\s+n\s+/gi, "\n")
+    .replace(/\s+([,.:%])/g, "$1")
+    .replace(/([a-záéíóúñ])\s{2,}([a-záéíóúñ])/gi, "$1 $2")
+    .replace(/([a-záéíóúñ])-\s+([a-záéíóúñ])/gi, "$1$2")
+    .replace(/[^\S\n]+/g, " ")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^[^\wáéíóúñÁÉÍÓÚÑ]{1,4}$/.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
+  const text = cleanExtractedText(rawText);
+  if (!text) {
+    statusNode.textContent = `No pude detectar texto claro en ${sourceName}. Intenta con una captura más nítida.`;
+    return false;
+  }
+  targetInput.value = text;
+  statusNode.textContent = `Texto limpio extraído de ${describeFile(file)}`;
+  return true;
+}
+
 function handleTextFile(file, targetInput, statusNode) {
   const reader = new FileReader();
   reader.onload = () => {
-    targetInput.value = String(reader.result || "").trim();
-    statusNode.textContent = `TXT cargado: ${describeFile(file)}`;
-    showToast("Texto cargado desde archivo");
+    if (setExtractedText(targetInput, reader.result, statusNode, file, "el TXT")) {
+      showToast("Texto cargado desde archivo");
+    }
   };
   reader.onerror = () => {
     statusNode.textContent = "No pude leer el archivo. Intenta pegar el texto manualmente.";
@@ -794,14 +823,9 @@ async function handleImageFile(file, targetInput, statusNode, label) {
         }
       }
     });
-    const text = result.data.text.trim();
-    if (!text) {
-      statusNode.textContent = "No pude detectar texto en la imagen. Intenta una captura más clara.";
-      return;
+    if (setExtractedText(targetInput, result.data.text, statusNode, file, "la imagen")) {
+      showToast("Texto extraído de la imagen");
     }
-    targetInput.value = text;
-    statusNode.textContent = `Texto extraído de ${describeFile(file)}`;
-    showToast("Texto extraído de la imagen");
   } catch {
     statusNode.textContent = "No pude leer la imagen. Intenta con una captura más clara o pega el texto.";
   }
@@ -858,14 +882,9 @@ async function handlePdfFile(file, targetInput, statusNode, label) {
       pages.push(pageText);
     }
 
-    const text = pages.join("\n\n").trim();
-    if (!text) {
-      statusNode.textContent = "No pude detectar texto en el PDF. Intenta con una foto más clara del CV.";
-      return;
+    if (setExtractedText(targetInput, pages.join("\n\n"), statusNode, file, "el PDF")) {
+      showToast("Texto extraído del PDF");
     }
-    targetInput.value = text;
-    statusNode.textContent = `Texto extraído de ${describeFile(file)}`;
-    showToast("Texto extraído del PDF");
   } catch {
     statusNode.textContent = "No pude leer el PDF. Intenta subir una foto/captura clara del CV.";
   }
@@ -913,8 +932,8 @@ clearBtn.addEventListener("click", () => {
   jobInput.value = "";
   cvFileInput.value = "";
   jobFileInput.value = "";
-  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. Se leerá automáticamente cuando sea posible.";
-  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. Se leerá automáticamente cuando sea posible.";
+  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. La app extrae y limpia el texto automáticamente.";
+  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. La app extrae y limpia el texto automáticamente.";
   results.classList.add("hidden");
   cvInput.focus();
 });
