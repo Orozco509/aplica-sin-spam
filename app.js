@@ -807,15 +807,42 @@ async function handleImageFile(file, targetInput, statusNode, label) {
   }
 }
 
-async function handlePdfFile(file, targetInput, statusNode, label) {
-  const pdfjsLib = window.pdfjsLib || globalThis.pdfjsLib;
-  if (!pdfjsLib) {
-    statusNode.textContent = "No se pudo cargar el lector PDF. Revisa tu conexión o usa una foto/TXT.";
-    return;
-  }
+async function getPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  const pdfjsLib = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs");
+  window.pdfjsLib = pdfjsLib;
+  return pdfjsLib;
+}
 
+async function extractTextFromPdfPage(page) {
+  const content = await page.getTextContent();
+  return content.items.map((item) => item.str).join(" ").trim();
+}
+
+async function ocrPdfPage(page, pageNumber, totalPages, statusNode, label) {
+  if (!window.Tesseract) return "";
+  statusNode.textContent = `${label}: el PDF parece escaneado, leyendo imagen ${pageNumber} de ${totalPages}...`;
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: context, viewport }).promise;
+  const result = await Tesseract.recognize(canvas, "spa+eng", {
+    logger: (event) => {
+      if (event.status === "recognizing text") {
+        const progress = Math.round((event.progress || 0) * 100);
+        statusNode.textContent = `${label}: leyendo imagen ${pageNumber} de ${totalPages}... ${progress}%`;
+      }
+    }
+  });
+  return result.data.text.trim();
+}
+
+async function handlePdfFile(file, targetInput, statusNode, label) {
   statusNode.textContent = `${label}: leyendo PDF...`;
   try {
+    const pdfjsLib = await getPdfJs();
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
     const buffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
@@ -824,20 +851,23 @@ async function handlePdfFile(file, targetInput, statusNode, label) {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       statusNode.textContent = `${label}: leyendo PDF página ${pageNumber} de ${pdf.numPages}`;
       const page = await pdf.getPage(pageNumber);
-      const content = await page.getTextContent();
-      pages.push(content.items.map((item) => item.str).join(" "));
+      let pageText = await extractTextFromPdfPage(page);
+      if (!pageText || pageText.length < 20) {
+        pageText = await ocrPdfPage(page, pageNumber, pdf.numPages, statusNode, label);
+      }
+      pages.push(pageText);
     }
 
     const text = pages.join("\n\n").trim();
     if (!text) {
-      statusNode.textContent = "No pude detectar texto en el PDF. Si es escaneado, sube una captura/foto.";
+      statusNode.textContent = "No pude detectar texto en el PDF. Intenta con una foto más clara del CV.";
       return;
     }
     targetInput.value = text;
     statusNode.textContent = `Texto extraído de ${describeFile(file)}`;
     showToast("Texto extraído del PDF");
   } catch {
-    statusNode.textContent = "No pude leer el PDF. Si es escaneado, sube una captura/foto.";
+    statusNode.textContent = "No pude leer el PDF. Intenta subir una foto/captura clara del CV.";
   }
 }
 
