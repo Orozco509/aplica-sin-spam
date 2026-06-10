@@ -209,6 +209,61 @@ textarea:focus {
   padding: 14px;
 }
 
+.file-preview {
+  min-height: 275px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.file-preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.file-preview-title {
+  min-width: 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.file-preview-action {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(23, 105, 255, 0.22);
+  border-radius: 8px;
+  color: var(--blue-dark);
+  background: rgba(23, 105, 255, 0.1);
+  font-weight: 800;
+}
+
+.file-preview-body {
+  display: grid;
+  place-items: center;
+  min-height: 222px;
+  padding: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.file-preview img,
+.file-preview iframe {
+  width: 100%;
+  height: 222px;
+  border: 0;
+  object-fit: contain;
+  background: #fff;
+}
+
+.input-hidden-by-file {
+  display: none;
+}
+
 .file-tools {
   display: flex;
   align-items: center;

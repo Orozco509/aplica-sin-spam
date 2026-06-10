@@ -6,6 +6,8 @@ const cvFileInput = document.querySelector("#cvFileInput");
 const jobFileInput = document.querySelector("#jobFileInput");
 const cvFileStatus = document.querySelector("#cvFileStatus");
 const jobFileStatus = document.querySelector("#jobFileStatus");
+const cvFilePreview = document.querySelector("#cvFilePreview");
+const jobFilePreview = document.querySelector("#jobFilePreview");
 const results = document.querySelector("#results");
 const toast = document.querySelector("#toast");
 const historyList = document.querySelector("#historyList");
@@ -794,6 +796,32 @@ function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
   return true;
 }
 
+function renderFilePreview(file, targetInput, previewNode) {
+  const objectUrl = URL.createObjectURL(file);
+  const isImage = file.type.startsWith("image/");
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  const body = isImage
+    ? `<img src="${objectUrl}" alt="Vista previa de ${escapeHtml(file.name)}">`
+    : isPdf
+      ? `<iframe src="${objectUrl}" title="Vista previa de ${escapeHtml(file.name)}"></iframe>`
+      : `<p>Archivo cargado. La app lo leerá por dentro para analizarlo.</p>`;
+
+  targetInput.classList.add("input-hidden-by-file");
+  previewNode.classList.remove("hidden");
+  previewNode.innerHTML = `
+    <div class="file-preview-header">
+      <div class="file-preview-title">${escapeHtml(file.name)}</div>
+      <button class="file-preview-action" type="button">Ver texto</button>
+    </div>
+    <div class="file-preview-body">${body}</div>
+  `;
+
+  previewNode.querySelector(".file-preview-action").addEventListener("click", () => {
+    const isHidden = targetInput.classList.toggle("input-hidden-by-file");
+    previewNode.querySelector(".file-preview-action").textContent = isHidden ? "Ver texto" : "Ocultar texto";
+  });
+}
+
 function handleTextFile(file, targetInput, statusNode) {
   const reader = new FileReader();
   reader.onload = () => {
@@ -890,9 +918,10 @@ async function handlePdfFile(file, targetInput, statusNode, label) {
   }
 }
 
-function handlePickedFile(event, targetInput, statusNode, label) {
+function handlePickedFile(event, targetInput, statusNode, previewNode, label) {
   const file = event.target.files?.[0];
   if (!file) return;
+  renderFilePreview(file, targetInput, previewNode);
   const isText = file.type.startsWith("text/") || file.name.toLowerCase().endsWith(".txt");
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
@@ -932,6 +961,12 @@ clearBtn.addEventListener("click", () => {
   jobInput.value = "";
   cvFileInput.value = "";
   jobFileInput.value = "";
+  cvInput.classList.remove("input-hidden-by-file");
+  jobInput.classList.remove("input-hidden-by-file");
+  cvFilePreview.classList.add("hidden");
+  jobFilePreview.classList.add("hidden");
+  cvFilePreview.innerHTML = "";
+  jobFilePreview.innerHTML = "";
   cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. La app extrae y limpia el texto automáticamente.";
   jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. La app extrae y limpia el texto automáticamente.";
   results.classList.add("hidden");
@@ -939,11 +974,11 @@ clearBtn.addEventListener("click", () => {
 });
 
 cvFileInput.addEventListener("change", (event) => {
-  handlePickedFile(event, cvInput, cvFileStatus, "CV seleccionado");
+  handlePickedFile(event, cvInput, cvFileStatus, cvFilePreview, "CV seleccionado");
 });
 
 jobFileInput.addEventListener("change", (event) => {
-  handlePickedFile(event, jobInput, jobFileStatus, "Publicación seleccionada");
+  handlePickedFile(event, jobInput, jobFileStatus, jobFilePreview, "Publicación seleccionada");
 });
 
 document.querySelectorAll(".copy-btn").forEach((button) => {
