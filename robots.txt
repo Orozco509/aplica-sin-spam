@@ -1,3 +1,4 @@
 User-agent: *
 Allow: /
 
+Sitemap: https://orozco509.github.io/aplica-sin-spam/sitemap.xml
