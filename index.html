@@ -51,7 +51,7 @@
                 Examinar archivo
                 <input id="cvFileInput" type="file" accept=".txt,.pdf,.doc,.docx,image/*">
               </label>
-              <small id="cvFileStatus">Puedes adjuntar TXT o foto. La foto se leerá automáticamente con OCR.</small>
+              <small id="cvFileStatus">Puedes adjuntar PDF, TXT o foto. Se leerá automáticamente cuando sea posible.</small>
             </div>
           </label>
 
@@ -63,7 +63,7 @@
                 Examinar archivo
                 <input id="jobFileInput" type="file" accept=".txt,.pdf,image/*">
               </label>
-              <small id="jobFileStatus">Puedes adjuntar captura o TXT. La captura se leerá automáticamente con OCR.</small>
+              <small id="jobFileStatus">Puedes adjuntar captura, PDF o TXT. Se leerá automáticamente cuando sea posible.</small>
             </div>
           </label>
         </div>
@@ -208,6 +208,10 @@
     </main>
 
     <div id="toast" class="toast" role="status" aria-live="polite">Copiado</div>
+    <script type="module">
+      import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
+      window.pdfjsLib = pdfjsLib;
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
   </body>

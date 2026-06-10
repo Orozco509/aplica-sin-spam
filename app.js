@@ -807,14 +807,53 @@ async function handleImageFile(file, targetInput, statusNode, label) {
   }
 }
 
+async function handlePdfFile(file, targetInput, statusNode, label) {
+  const pdfjsLib = window.pdfjsLib || globalThis.pdfjsLib;
+  if (!pdfjsLib) {
+    statusNode.textContent = "No se pudo cargar el lector PDF. Revisa tu conexión o usa una foto/TXT.";
+    return;
+  }
+
+  statusNode.textContent = `${label}: leyendo PDF...`;
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    const pages = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      statusNode.textContent = `${label}: leyendo PDF página ${pageNumber} de ${pdf.numPages}`;
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((item) => item.str).join(" "));
+    }
+
+    const text = pages.join("\n\n").trim();
+    if (!text) {
+      statusNode.textContent = "No pude detectar texto en el PDF. Si es escaneado, sube una captura/foto.";
+      return;
+    }
+    targetInput.value = text;
+    statusNode.textContent = `Texto extraído de ${describeFile(file)}`;
+    showToast("Texto extraído del PDF");
+  } catch {
+    statusNode.textContent = "No pude leer el PDF. Si es escaneado, sube una captura/foto.";
+  }
+}
+
 function handlePickedFile(event, targetInput, statusNode, label) {
   const file = event.target.files?.[0];
   if (!file) return;
   const isText = file.type.startsWith("text/") || file.name.toLowerCase().endsWith(".txt");
   const isImage = file.type.startsWith("image/");
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
   if (isText) {
     handleTextFile(file, targetInput, statusNode);
+    return;
+  }
+  if (isPdf) {
+    handlePdfFile(file, targetInput, statusNode, label);
     return;
   }
   if (isImage) {
@@ -822,7 +861,7 @@ function handlePickedFile(event, targetInput, statusNode, label) {
     return;
   }
 
-  statusNode.textContent = `${label}: ${describeFile(file)}. Por ahora PDF/DOCX no se leen solos; usa captura o TXT.`;
+  statusNode.textContent = `${label}: ${describeFile(file)}. Por ahora DOC/DOCX no se leen solos; usa PDF, captura o TXT.`;
   showToast("Archivo seleccionado");
 }
 
@@ -844,8 +883,8 @@ clearBtn.addEventListener("click", () => {
   jobInput.value = "";
   cvFileInput.value = "";
   jobFileInput.value = "";
-  cvFileStatus.textContent = "Puedes adjuntar TXT o foto. La foto se leerá automáticamente con OCR.";
-  jobFileStatus.textContent = "Puedes adjuntar captura o TXT. La captura se leerá automáticamente con OCR.";
+  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. Se leerá automáticamente cuando sea posible.";
+  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. Se leerá automáticamente cuando sea posible.";
   results.classList.add("hidden");
   cvInput.focus();
 });
