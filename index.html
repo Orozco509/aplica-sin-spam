@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es-MX">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AplicaSinSpam | CV y vacantes de Facebook</title>
+    <meta name="description" content="Analiza vacantes de Facebook, detecta señales de fraude y genera mensajes y CV adaptado para aplicar sin hacer spam.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <aside class="ad-rail ad-rail-left" aria-label="Anuncio lateral izquierdo">
+      <span>Anuncio</span>
+      <p>Espacio para AdSense</p>
+    </aside>
+    <aside class="ad-rail ad-rail-right" aria-label="Anuncio lateral derecho">
+      <span>Anuncio</span>
+      <p>Espacio para AdSense</p>
+    </aside>
+    <main class="app-shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">AplicaSinSpam</p>
+          <h1>Aplica mejor a vacantes de Facebook, sin verte como spam.</h1>
+          <p class="intro">
+            Pega tu CV y una publicación de vacante. La app analiza compatibilidad,
+            detecta alertas y te prepara mensajes listos para copiar.
+          </p>
+        </div>
+        <div class="hero-panel" aria-label="Resumen de funciones">
+          <div>
+            <span class="metric">100%</span>
+            <span class="metric-label">local, sin backend</span>
+          </div>
+          <div>
+            <span class="metric">0</span>
+            <span class="metric-label">mensajes enviados automáticamente</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="Analizador de vacantes">
+        <div class="input-grid">
+          <label class="text-box">
+            <span>Mi CV</span>
+            <textarea id="cvInput" placeholder="Pega aquí tu CV, experiencia, habilidades, estudios, ciudad, disponibilidad y datos relevantes."></textarea>
+            <div class="file-tools">
+              <label class="file-picker">
+                Examinar archivo
+                <input id="cvFileInput" type="file" accept=".txt,.pdf,.doc,.docx,image/*">
+              </label>
+              <small id="cvFileStatus">Puedes adjuntar PDF, foto o TXT. Si es TXT, se pega automáticamente.</small>
+            </div>
+          </label>
+
+          <label class="text-box">
+            <span>Publicación de Facebook</span>
+            <textarea id="jobInput" placeholder="Pega aquí la vacante: puesto, ciudad, sueldo, requisitos, horario, contacto o WhatsApp."></textarea>
+            <div class="file-tools">
+              <label class="file-picker">
+                Examinar archivo
+                <input id="jobFileInput" type="file" accept=".txt,.pdf,image/*">
+              </label>
+              <small id="jobFileStatus">Puedes adjuntar captura, PDF o TXT. Si es TXT, se pega automáticamente.</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="analyzeBtn" class="primary-action" type="button">Analizar vacante</button>
+          <button id="clearBtn" class="secondary-action" type="button">Limpiar</button>
+        </div>
+      </section>
+
+      <section id="results" class="results hidden" aria-live="polite">
+        <div class="score-band">
+          <div class="score-card">
+            <span class="score-label">Compatibilidad</span>
+            <strong id="scoreValue">0%</strong>
+            <div class="score-track"><span id="scoreBar"></span></div>
+          </div>
+          <div class="recommendation-card">
+            <span>Recomendación</span>
+            <strong id="recommendation">Analiza primero</strong>
+            <p id="recommendationReason"></p>
+          </div>
+          <div id="riskCard" class="risk-card risk-green">
+            <span>Semáforo</span>
+            <strong id="riskLabel">Verde</strong>
+            <p id="riskReason">Se ve normal</p>
+          </div>
+        </div>
+
+        <div class="details-grid">
+          <article class="panel">
+            <h2>Datos detectados</h2>
+            <dl class="facts">
+              <div><dt>Puesto</dt><dd id="roleFact">No detectado</dd></div>
+              <div><dt>Empresa</dt><dd id="companyFact">No aparece</dd></div>
+              <div><dt>Ciudad</dt><dd id="cityFact">No detectada</dd></div>
+              <div><dt>Sueldo</dt><dd id="salaryFact">No aparece</dd></div>
+              <div><dt>Experiencia</dt><dd id="experienceFact">No especificada</dd></div>
+              <div><dt>Horario</dt><dd id="scheduleFact">No especificado</dd></div>
+              <div><dt>Contacto</dt><dd id="contactFact">No aparece</dd></div>
+            </dl>
+          </article>
+
+          <article class="panel">
+            <h2>Requisitos</h2>
+            <div class="list-pair">
+              <div>
+                <h3>Sí cumplo</h3>
+                <ul id="matchedList" class="check-list"></ul>
+              </div>
+              <div>
+                <h3>Me faltan o no aparecen en mi CV</h3>
+                <ul id="missingList" class="warning-list"></ul>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel alerts-panel">
+            <h2>Alertas</h2>
+            <ul id="alertsList" class="alert-list"></ul>
+          </article>
+
+          <article class="panel requirements-panel">
+            <h2>Requisitos extraídos</h2>
+            <ul id="requirementsList" class="plain-list"></ul>
+          </article>
+        </div>
+
+        <section class="messages">
+          <div class="section-heading">
+            <h2>Textos para copiar</h2>
+            <p>La app solo prepara mensajes. Tú decides si los publicas o los envías.</p>
+          </div>
+
+          <div class="message-grid">
+            <article class="message-card">
+              <div class="message-header">
+                <h3>Comentario corto</h3>
+                <button class="copy-btn" type="button" data-copy-target="commentMsg">Copiar</button>
+              </div>
+              <textarea id="commentMsg" readonly></textarea>
+            </article>
+
+            <article class="message-card">
+              <div class="message-header">
+                <h3>Inbox formal</h3>
+                <button class="copy-btn" type="button" data-copy-target="inboxMsg">Copiar</button>
+              </div>
+              <textarea id="inboxMsg" readonly></textarea>
+            </article>
+
+            <article class="message-card">
+              <div class="message-header">
+                <h3>WhatsApp</h3>
+                <button class="copy-btn" type="button" data-copy-target="whatsappMsg">Copiar</button>
+              </div>
+              <textarea id="whatsappMsg" readonly></textarea>
+            </article>
+
+            <article class="message-card">
+              <div class="message-header">
+                <h3>Perfil mejorado</h3>
+                <button class="copy-btn" type="button" data-copy-target="profileMsg">Copiar</button>
+              </div>
+              <textarea id="profileMsg" readonly></textarea>
+            </article>
+          </div>
+        </section>
+
+        <section class="adapted-cv-section">
+          <div class="section-heading">
+            <h2>CV adaptado a la vacante</h2>
+            <p>Úsalo como borrador y ajusta datos reales antes de enviarlo.</p>
+          </div>
+          <div class="adapted-cv-panel">
+            <div class="adapted-actions">
+              <button class="copy-btn" type="button" data-copy-target="adaptedCvText">Copiar</button>
+              <button id="downloadTxtBtn" class="secondary-action" type="button">Descargar .txt</button>
+              <button id="downloadDocxBtn" class="secondary-action" type="button">Descargar .docx</button>
+            </div>
+            <textarea id="adaptedCvText" readonly></textarea>
+          </div>
+        </section>
+      </section>
+
+      <section class="history-section" aria-label="Historial de vacantes">
+        <div class="section-heading">
+          <h2>Historial</h2>
+          <p>Se guarda solo en este navegador con localStorage.</p>
+        </div>
+        <div id="historyEmpty" class="history-empty">Todavía no hay vacantes guardadas.</div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <footer class="site-footer">
+        <strong>AplicaSinSpam</strong>
+        <nav aria-label="Enlaces del sitio">
+          <a href="acerca.html">Acerca de</a>
+          <a href="privacidad.html">Privacidad</a>
+        </nav>
+      </footer>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite">Copiado</div>
+    <script src="app.js"></script>
+  </body>
+</html>
