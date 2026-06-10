@@ -214,6 +214,10 @@ textarea:focus {
   margin-top: 12px;
 }
 
+.detected-text.hidden {
+  display: none;
+}
+
 .detected-text:first-of-type {
   margin-top: 0;
 }

@@ -980,7 +980,7 @@ function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
     return false;
   }
   targetInput.value = text;
-  statusNode.textContent = `Texto limpio extraído de ${describeFile(file)}`;
+  statusNode.textContent = `Archivo leído: ${describeFile(file)}. La app usará la información internamente.`;
   return true;
 }
 
@@ -1050,7 +1050,18 @@ function renderFilePreview(file, targetInput, previewNode) {
   });
 }
 
+function hideDetectedText(targetInput) {
+  const wrapper = targetInput.closest(".detected-text");
+  if (wrapper) wrapper.classList.add("hidden");
+}
+
+function showDetectedText(targetInput) {
+  const wrapper = targetInput.closest(".detected-text");
+  if (wrapper) wrapper.classList.remove("hidden");
+}
+
 function handleTextFile(file, targetInput, statusNode) {
+  showDetectedText(targetInput);
   const reader = new FileReader();
   reader.onload = () => {
     if (setExtractedText(targetInput, reader.result, statusNode, file, "el TXT")) {
@@ -1169,10 +1180,12 @@ function handlePickedFile(event, targetInput, statusNode, previewNode, label) {
     return;
   }
   if (isPdf) {
+    hideDetectedText(targetInput);
     handlePdfFile(file, targetInput, statusNode, label);
     return;
   }
   if (isImage) {
+    hideDetectedText(targetInput);
     handleImageFile(file, targetInput, statusNode, label);
     return;
   }
@@ -1199,12 +1212,14 @@ clearBtn.addEventListener("click", () => {
   jobInput.value = "";
   cvFileInput.value = "";
   jobFileInput.value = "";
+  showDetectedText(cvInput);
+  showDetectedText(jobInput);
   cvFilePreview.classList.add("hidden");
   jobFilePreview.classList.add("hidden");
   cvFilePreview.innerHTML = "";
   jobFilePreview.innerHTML = "";
-  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. La app usa OCR en nube para leer mejor el texto.";
-  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. La app usa OCR en nube para leer mejor el texto.";
+  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. Imágenes/PDFs se leen con OCR externo y no se muestra la transcripción.";
+  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. Imágenes/PDFs se leen con OCR externo y no se muestra la transcripción.";
   results.classList.add("hidden");
   cvInput.focus();
 });
