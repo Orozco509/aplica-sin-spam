@@ -23,8 +23,8 @@ const accessStatus = document.querySelector("#accessStatus");
 const clearHistoryBtn = document.querySelector("#clearHistoryBtn");
 const HISTORY_KEY = "facebookCvAssistantHistory";
 const ROLE_KEY = "facebookCvAssistantRole";
+const ADMIN_PIN_KEY = "facebookCvAssistantAdminPin";
 const OCR_SPACE_API_KEY = "helloworld";
-const ADMIN_PIN = "2468";
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
 const MAX_TEXT_LENGTH = 30000;
 const MIN_ANALYSIS_LENGTH = 20;
@@ -1276,7 +1276,22 @@ roleSelect.addEventListener("change", () => {
 });
 
 unlockAdminBtn.addEventListener("click", () => {
-  if (adminPin.value !== ADMIN_PIN) {
+  const savedPin = localStorage.getItem(ADMIN_PIN_KEY);
+  if (!savedPin) {
+    if (adminPin.value.length < 4) {
+      showToast("Crea un PIN admin de mínimo 4 dígitos");
+      return;
+    }
+    localStorage.setItem(ADMIN_PIN_KEY, adminPin.value);
+    currentRole = "admin";
+    localStorage.setItem(ROLE_KEY, currentRole);
+    roleSelect.value = "admin";
+    adminPin.value = "";
+    applyRole();
+    showToast("PIN admin creado");
+    return;
+  }
+  if (adminPin.value !== savedPin) {
     showToast("PIN admin incorrecto");
     return;
   }

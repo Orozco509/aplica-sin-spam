@@ -34,4 +34,4 @@ La app marca alertas si detecta sueldo demasiado alto para poca experiencia, cob
 - Es una primera versión basada en palabras clave y reglas simples.
 - El historial se guarda con `localStorage` en el navegador donde abras la app.
 - La interfaz ya incluye espacios laterales para anuncios. Reemplázalos por el código de AdSense cuando Google apruebe el sitio.
-- Incluye validación de archivos, saneamiento de texto, consentimiento para OCR externo y control local de rol. El modo administrador local usa PIN `2468` para acciones sensibles como borrar historial.
+- Incluye validación de archivos, saneamiento de texto, consentimiento para OCR externo y control local de rol. El PIN de administrador se crea localmente la primera vez en cada navegador.
