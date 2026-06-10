@@ -103,8 +103,8 @@ function validateFile(file, needsOcr) {
 }
 
 function applyRole() {
-  roleSelect.value = currentRole;
-  const wantsAdmin = roleSelect.value === "admin";
+  const selectedRole = roleSelect.value;
+  const wantsAdmin = selectedRole === "admin";
   adminPinWrap.classList.toggle("hidden", !wantsAdmin || currentRole === "admin");
   unlockAdminBtn.classList.toggle("hidden", !wantsAdmin || currentRole === "admin");
   document.querySelectorAll(".admin-only").forEach((node) => {
@@ -1265,6 +1265,13 @@ roleSelect.addEventListener("change", () => {
     localStorage.setItem(ROLE_KEY, currentRole);
     adminPin.value = "";
   }
+  if (roleSelect.value === "admin" && currentRole !== "admin") {
+    adminPinWrap.classList.remove("hidden");
+    unlockAdminBtn.classList.remove("hidden");
+    accessStatus.textContent = "Ingresa el PIN admin para activar permisos.";
+    adminPin.focus();
+    return;
+  }
   applyRole();
 });
 
@@ -1275,6 +1282,7 @@ unlockAdminBtn.addEventListener("click", () => {
   }
   currentRole = "admin";
   localStorage.setItem(ROLE_KEY, currentRole);
+  roleSelect.value = "admin";
   adminPin.value = "";
   applyRole();
   showToast("Modo administrador activado");
