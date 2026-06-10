@@ -9,7 +9,7 @@ App web estática para analizar vacantes publicadas en grupos de Facebook y prep
 3. Se abrirá en tu navegador.
 4. Pega tu CV en el primer campo.
 5. Pega la publicacion de Facebook en el segundo campo.
-6. También puedes usar `Examinar archivo` para seleccionar PDF, TXT o una foto/captura. Los TXT y PDF con texto se cargan automáticamente; las imágenes se leen con OCR en el navegador.
+6. También puedes usar `Examinar archivo` para seleccionar PDF, TXT o una foto/captura. Los TXT se cargan localmente; las imágenes y PDFs se leen con OCR en nube y respaldo local.
 7. Haz clic en `Analizar vacante`.
 8. Revisa compatibilidad, requisitos, alertas y recomendación.
 9. Usa los botones `Copiar` para llevarte el comentario, inbox, WhatsApp o perfil mejorado.
@@ -30,7 +30,7 @@ La app marca alertas si detecta sueldo demasiado alto para poca experiencia, cob
 - No necesita backend.
 - No instala dependencias.
 - No envía mensajes automáticamente.
-- Todo el análisis ocurre en tu navegador.
+- El análisis ocurre en tu navegador. Para leer fotos/PDFs, la app puede usar OCR.space como servicio OCR externo.
 - Es una primera versión basada en palabras clave y reglas simples.
 - El historial se guarda con `localStorage` en el navegador donde abras la app.
 - La interfaz ya incluye espacios laterales para anuncios. Reemplázalos por el código de AdSense cuando Google apruebe el sitio.

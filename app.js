@@ -15,6 +15,7 @@ const historyEmpty = document.querySelector("#historyEmpty");
 const downloadTxtBtn = document.querySelector("#downloadTxtBtn");
 const downloadDocxBtn = document.querySelector("#downloadDocxBtn");
 const HISTORY_KEY = "facebookCvAssistantHistory";
+const OCR_SPACE_API_KEY = "helloworld";
 let currentAdaptedCvText = "";
 
 const skillKeywords = [
@@ -983,6 +984,47 @@ function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
   return true;
 }
 
+function looksLikeBadOcr(text) {
+  const normalizedText = normalize(text);
+  const usefulKeywords = [
+    "requisitos", "experiencia", "office", "excel", "word", "whatsapp",
+    "gmail", "cv", "sueldo", "horario", "contacto", "auxiliar", "administrativo"
+  ];
+  const usefulHits = usefulKeywords.filter((keyword) => normalizedText.includes(keyword)).length;
+  const badSymbols = (text.match(/[<>\\{}]/g) || []).length;
+  const oneLetterWords = (text.match(/\b[a-z]\b/gi) || []).length;
+  return normalizedText.length < 45 || (usefulHits < 2 && badSymbols + oneLetterWords > 8);
+}
+
+async function ocrWithOcrSpace(file, statusNode, label) {
+  statusNode.textContent = `${label}: leyendo con OCR en nube...`;
+  const formData = new FormData();
+  formData.append("apikey", OCR_SPACE_API_KEY);
+  formData.append("file", file);
+  formData.append("language", "spa");
+  formData.append("isOverlayRequired", "false");
+  formData.append("detectOrientation", "true");
+  formData.append("scale", "true");
+  formData.append("isTable", "true");
+  formData.append("OCREngine", "2");
+
+  const response = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    body: formData
+  });
+  if (!response.ok) throw new Error("OCR service unavailable");
+  const data = await response.json();
+  if (data.IsErroredOnProcessing) {
+    throw new Error(Array.isArray(data.ErrorMessage) ? data.ErrorMessage.join(" ") : data.ErrorMessage || "OCR error");
+  }
+  const parsedText = (data.ParsedResults || [])
+    .map((result) => result.ParsedText || "")
+    .join("\n")
+    .trim();
+  if (!parsedText) throw new Error("OCR returned empty text");
+  return parsedText;
+}
+
 function renderFilePreview(file, targetInput, previewNode) {
   const objectUrl = URL.createObjectURL(file);
   const isImage = file.type.startsWith("image/");
@@ -1022,19 +1064,28 @@ function handleTextFile(file, targetInput, statusNode) {
 }
 
 async function handleImageFile(file, targetInput, statusNode, label) {
-  if (!window.Tesseract) {
-    statusNode.textContent = "No se pudo cargar el lector de imágenes. Revisa tu conexión e intenta otra vez.";
-    return;
-  }
-
-  statusNode.textContent = `${label}: leyendo imagen... 0%`;
   try {
-    const text = await recognizeImageSmart(file, statusNode, label);
+    let text = await ocrWithOcrSpace(file, statusNode, label);
+    if (looksLikeBadOcr(text) && window.Tesseract) {
+      statusNode.textContent = `${label}: mejorando lectura local...`;
+      text = await recognizeImageSmart(file, statusNode, label);
+    }
     if (setExtractedText(targetInput, text, statusNode, file, "la imagen")) {
       showToast("Texto extraído de la imagen");
     }
   } catch {
-    statusNode.textContent = "No pude leer la imagen. Intenta con una captura más clara o pega el texto.";
+    if (!window.Tesseract) {
+      statusNode.textContent = "No pude leer la imagen. Revisa tu conexión o intenta con otra captura.";
+      return;
+    }
+    try {
+      const text = await recognizeImageSmart(file, statusNode, label);
+      if (setExtractedText(targetInput, text, statusNode, file, "la imagen")) {
+        showToast("Texto extraído de la imagen");
+      }
+    } catch {
+      statusNode.textContent = "No pude leer la imagen. Intenta con una captura más clara.";
+    }
   }
 }
 
@@ -1070,6 +1121,16 @@ async function ocrPdfPage(page, pageNumber, totalPages, statusNode, label) {
 
 async function handlePdfFile(file, targetInput, statusNode, label) {
   statusNode.textContent = `${label}: leyendo PDF...`;
+  try {
+    const cloudText = await ocrWithOcrSpace(file, statusNode, label);
+    if (setExtractedText(targetInput, cloudText, statusNode, file, "el PDF")) {
+      showToast("Texto extraído del PDF");
+      return;
+    }
+  } catch {
+    statusNode.textContent = `${label}: OCR en nube no pudo leerlo, intentando lectura local...`;
+  }
+
   try {
     const pdfjsLib = await getPdfJs();
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
@@ -1142,8 +1203,8 @@ clearBtn.addEventListener("click", () => {
   jobFilePreview.classList.add("hidden");
   cvFilePreview.innerHTML = "";
   jobFilePreview.innerHTML = "";
-  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. La app extrae y limpia el texto automáticamente.";
-  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. La app extrae y limpia el texto automáticamente.";
+  cvFileStatus.textContent = "Puedes adjuntar PDF, TXT o foto. La app usa OCR en nube para leer mejor el texto.";
+  jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. La app usa OCR en nube para leer mejor el texto.";
   results.classList.add("hidden");
   cvInput.focus();
 });
