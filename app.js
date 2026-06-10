@@ -819,9 +819,68 @@ function preprocessCanvasForOcr(sourceCanvas) {
   return canvas;
 }
 
+function cloneCanvas(sourceCanvas) {
+  const canvas = document.createElement("canvas");
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
+  canvas.getContext("2d").drawImage(sourceCanvas, 0, 0);
+  return canvas;
+}
+
+function cropCanvas(sourceCanvas, xRatio, yRatio, widthRatio, heightRatio) {
+  const sx = Math.max(0, Math.round(sourceCanvas.width * xRatio));
+  const sy = Math.max(0, Math.round(sourceCanvas.height * yRatio));
+  const sw = Math.min(sourceCanvas.width - sx, Math.round(sourceCanvas.width * widthRatio));
+  const sh = Math.min(sourceCanvas.height - sy, Math.round(sourceCanvas.height * heightRatio));
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  canvas.getContext("2d").drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return canvas;
+}
+
+function trimLightBorder(sourceCanvas) {
+  const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const image = context.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const data = image.data;
+  let minX = sourceCanvas.width;
+  let minY = sourceCanvas.height;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (let y = 0; y < sourceCanvas.height; y += 1) {
+    for (let x = 0; x < sourceCanvas.width; x += 1) {
+      const index = (y * sourceCanvas.width + x) * 4;
+      const red = data[index];
+      const green = data[index + 1];
+      const blue = data[index + 2];
+      const alpha = data[index + 3];
+      const notBlank = alpha > 0 && !(red > 238 && green > 238 && blue > 238);
+      if (notBlank) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (maxX <= minX || maxY <= minY) return cloneCanvas(sourceCanvas);
+  const padding = 18;
+  const sx = Math.max(0, minX - padding);
+  const sy = Math.max(0, minY - padding);
+  const sw = Math.min(sourceCanvas.width - sx, maxX - minX + padding * 2);
+  const sh = Math.min(sourceCanvas.height - sy, maxY - minY + padding * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  canvas.getContext("2d").drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return canvas;
+}
+
 async function imageFileToCanvas(file) {
   const bitmap = await createImageBitmap(file);
-  const maxWidth = 1800;
+  const maxWidth = 2600;
   const scale = Math.max(1, Math.min(3, maxWidth / bitmap.width));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * scale);
@@ -830,7 +889,87 @@ async function imageFileToCanvas(file) {
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return preprocessCanvasForOcr(canvas);
+  return canvas;
+}
+
+function scoreOcrText(text, confidence = 0) {
+  const normalizedText = normalize(text);
+  const keywords = [
+    "requisitos", "experiencia", "auxiliar", "administrativo", "office", "excel",
+    "word", "whatsapp", "gmail", "cv", "preparatoria", "carrera", "tecnica",
+    "sueldo", "horario", "interesados", "enviar", "equipo", "trabajo"
+  ];
+  const keywordScore = keywords.filter((keyword) => normalizedText.includes(keyword)).length * 24;
+  const lengthScore = Math.min(220, normalizedText.length);
+  const badSymbolPenalty = ((text.match(/[<>\\{}]/g) || []).length * 14) + ((text.match(/\b[a-z]\b/gi) || []).length * 4);
+  return confidence + keywordScore + lengthScore - badSymbolPenalty;
+}
+
+function mergeOcrTexts(texts) {
+  const lines = [];
+  const seen = new Set();
+  texts
+    .join("\n")
+    .split("\n")
+    .map((line) => cleanExtractedText(line))
+    .filter(Boolean)
+    .forEach((line) => {
+      const key = normalize(line).replace(/\s+/g, " ");
+      if (key.length > 2 && !seen.has(key)) {
+        seen.add(key);
+        lines.push(line);
+      }
+    });
+  return lines.join("\n");
+}
+
+async function recognizeCanvas(canvas, statusNode, label, passLabel, progressOffset, progressShare) {
+  const result = await Tesseract.recognize(canvas, "spa+eng", {
+    tessedit_pageseg_mode: "6",
+    preserve_interword_spaces: "1",
+    logger: (event) => {
+      if (event.status === "recognizing text") {
+        const progress = Math.round((progressOffset + (event.progress || 0) * progressShare) * 100);
+        statusNode.textContent = `${label}: leyendo ${passLabel}... ${Math.min(99, progress)}%`;
+      }
+    }
+  });
+  return {
+    text: result.data.text || "",
+    confidence: result.data.confidence || 0,
+    score: scoreOcrText(result.data.text || "", result.data.confidence || 0)
+  };
+}
+
+async function recognizeImageSmart(file, statusNode, label) {
+  const original = await imageFileToCanvas(file);
+  const trimmed = trimLightBorder(original);
+  const candidates = [
+    { name: "imagen completa", canvas: trimmed },
+    { name: "texto principal", canvas: cropCanvas(trimmed, 0, 0, 0.72, 0.78) },
+    { name: "requisitos", canvas: cropCanvas(trimmed, 0, 0.18, 0.72, 0.6) },
+    { name: "contacto", canvas: cropCanvas(trimmed, 0, 0.74, 1, 0.26) },
+    { name: "alto contraste", canvas: preprocessCanvasForOcr(trimmed) }
+  ];
+  const results = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    results.push(await recognizeCanvas(
+      candidate.canvas,
+      statusNode,
+      label,
+      candidate.name,
+      index / candidates.length,
+      1 / candidates.length
+    ));
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  const usefulTexts = results
+    .filter((result, index) => index < 3 || scoreOcrText(result.text, result.confidence) > 120)
+    .map((result) => result.text);
+  return mergeOcrTexts(usefulTexts);
 }
 
 function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
@@ -890,16 +1029,8 @@ async function handleImageFile(file, targetInput, statusNode, label) {
 
   statusNode.textContent = `${label}: leyendo imagen... 0%`;
   try {
-    const canvas = await imageFileToCanvas(file);
-    const result = await Tesseract.recognize(canvas, "spa+eng", {
-      logger: (event) => {
-        if (event.status === "recognizing text") {
-          const progress = Math.round((event.progress || 0) * 100);
-          statusNode.textContent = `${label}: leyendo imagen... ${progress}%`;
-        }
-      }
-    });
-    if (setExtractedText(targetInput, result.data.text, statusNode, file, "la imagen")) {
+    const text = await recognizeImageSmart(file, statusNode, label);
+    if (setExtractedText(targetInput, text, statusNode, file, "la imagen")) {
       showToast("Texto extraído de la imagen");
     }
   } catch {
@@ -929,15 +1060,12 @@ async function ocrPdfPage(page, pageNumber, totalPages, statusNode, label) {
   canvas.height = viewport.height;
   await page.render({ canvasContext: context, viewport }).promise;
   const processedCanvas = preprocessCanvasForOcr(canvas);
-  const result = await Tesseract.recognize(processedCanvas, "spa+eng", {
-    logger: (event) => {
-      if (event.status === "recognizing text") {
-        const progress = Math.round((event.progress || 0) * 100);
-        statusNode.textContent = `${label}: leyendo imagen ${pageNumber} de ${totalPages}... ${progress}%`;
-      }
-    }
-  });
-  return result.data.text.trim();
+  const results = [
+    await recognizeCanvas(canvas, statusNode, label, `PDF ${pageNumber}/${totalPages}`, 0, 0.5),
+    await recognizeCanvas(processedCanvas, statusNode, label, `PDF contraste ${pageNumber}/${totalPages}`, 0.5, 0.5)
+  ];
+  results.sort((a, b) => b.score - a.score);
+  return mergeOcrTexts(results.map((result) => result.text));
 }
 
 async function handlePdfFile(file, targetInput, statusNode, label) {
