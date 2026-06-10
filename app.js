@@ -14,9 +14,22 @@ const historyList = document.querySelector("#historyList");
 const historyEmpty = document.querySelector("#historyEmpty");
 const downloadTxtBtn = document.querySelector("#downloadTxtBtn");
 const downloadDocxBtn = document.querySelector("#downloadDocxBtn");
+const roleSelect = document.querySelector("#roleSelect");
+const adminPinWrap = document.querySelector("#adminPinWrap");
+const adminPin = document.querySelector("#adminPin");
+const unlockAdminBtn = document.querySelector("#unlockAdminBtn");
+const externalOcrConsent = document.querySelector("#externalOcrConsent");
+const accessStatus = document.querySelector("#accessStatus");
+const clearHistoryBtn = document.querySelector("#clearHistoryBtn");
 const HISTORY_KEY = "facebookCvAssistantHistory";
+const ROLE_KEY = "facebookCvAssistantRole";
 const OCR_SPACE_API_KEY = "helloworld";
+const ADMIN_PIN = "2468";
+const MAX_FILE_SIZE = 8 * 1024 * 1024;
+const MAX_TEXT_LENGTH = 30000;
+const MIN_ANALYSIS_LENGTH = 20;
 let currentAdaptedCvText = "";
+let currentRole = localStorage.getItem(ROLE_KEY) === "admin" ? "admin" : "user";
 
 const skillKeywords = [
   "excel", "ventas", "atencion a clientes", "atencion al cliente", "caja", "facturacion",
@@ -52,6 +65,54 @@ function normalize(text) {
     .replace(/[^\w\s$@.+-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function sanitizeInputText(text) {
+  return String(text || "")
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{4,}/g, "\n\n")
+    .trim()
+    .slice(0, MAX_TEXT_LENGTH);
+}
+
+function validateAnalysisInputs(cv, job) {
+  if (cv.length < MIN_ANALYSIS_LENGTH || job.length < MIN_ANALYSIS_LENGTH) {
+    return "Necesito texto suficiente del CV y de la vacante para analizar.";
+  }
+  if (cv.length >= MAX_TEXT_LENGTH || job.length >= MAX_TEXT_LENGTH) {
+    return "El texto es demasiado largo. Recorté el contenido; revisa que siga lo importante.";
+  }
+  return "";
+}
+
+function validateFile(file, needsOcr) {
+  const allowed = file.type.startsWith("image/") ||
+    file.type === "application/pdf" ||
+    file.type.startsWith("text/") ||
+    file.name.toLowerCase().endsWith(".txt");
+  if (!allowed) return "Tipo de archivo no permitido. Usa PDF, TXT o imagen.";
+  if (file.size > MAX_FILE_SIZE) return "El archivo pesa demasiado. Máximo 8 MB.";
+  if (needsOcr && !externalOcrConsent.checked) {
+    return "Marca la autorización para procesar fotos/PDFs con OCR externo.";
+  }
+  return "";
+}
+
+function applyRole() {
+  roleSelect.value = currentRole;
+  const wantsAdmin = roleSelect.value === "admin";
+  adminPinWrap.classList.toggle("hidden", !wantsAdmin || currentRole === "admin");
+  unlockAdminBtn.classList.toggle("hidden", !wantsAdmin || currentRole === "admin");
+  document.querySelectorAll(".admin-only").forEach((node) => {
+    node.classList.toggle("hidden", currentRole !== "admin");
+  });
+  accessStatus.textContent = currentRole === "admin"
+    ? "Rol actual: administrador local. Puedes borrar historial."
+    : "Rol actual: usuario.";
 }
 
 function titleCase(text) {
@@ -974,7 +1035,7 @@ async function recognizeImageSmart(file, statusNode, label) {
 }
 
 function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
-  const text = cleanExtractedText(rawText);
+  const text = sanitizeInputText(cleanExtractedText(rawText));
   if (!text) {
     statusNode.textContent = `No pude detectar texto claro en ${sourceName}. Intenta con una captura más nítida.`;
     return false;
@@ -1132,10 +1193,18 @@ async function handlePdfFile(file, targetInput, statusNode, label) {
 function handlePickedFile(event, targetInput, statusNode, previewNode, label) {
   const file = event.target.files?.[0];
   if (!file) return;
-  renderFilePreview(file, targetInput, previewNode);
   const isText = file.type.startsWith("text/") || file.name.toLowerCase().endsWith(".txt");
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  const validationError = validateFile(file, isImage || isPdf);
+  if (validationError) {
+    event.target.value = "";
+    statusNode.textContent = validationError;
+    showToast(validationError);
+    return;
+  }
+
+  renderFilePreview(file, targetInput, previewNode);
 
   if (isText) {
     showDetectedText(targetInput);
@@ -1158,10 +1227,13 @@ function handlePickedFile(event, targetInput, statusNode, previewNode, label) {
 }
 
 analyzeBtn.addEventListener("click", () => {
-  const cv = cvInput.value.trim();
-  const job = jobInput.value.trim();
-  if (!cv || !job) {
-    showToast("Pega tu CV y la vacante primero");
+  const cv = sanitizeInputText(cvInput.value);
+  const job = sanitizeInputText(jobInput.value);
+  cvInput.value = cv;
+  jobInput.value = job;
+  const validationError = validateAnalysisInputs(cv, job);
+  if (validationError) {
+    showToast(validationError);
     return;
   }
   const analysis = analyze(cv, job);
@@ -1185,6 +1257,38 @@ clearBtn.addEventListener("click", () => {
   jobFileStatus.textContent = "Puedes adjuntar captura, PDF o TXT. Imágenes/PDFs se leen con OCR externo y no se muestra la transcripción.";
   results.classList.add("hidden");
   cvInput.focus();
+});
+
+roleSelect.addEventListener("change", () => {
+  if (roleSelect.value === "user") {
+    currentRole = "user";
+    localStorage.setItem(ROLE_KEY, currentRole);
+    adminPin.value = "";
+  }
+  applyRole();
+});
+
+unlockAdminBtn.addEventListener("click", () => {
+  if (adminPin.value !== ADMIN_PIN) {
+    showToast("PIN admin incorrecto");
+    return;
+  }
+  currentRole = "admin";
+  localStorage.setItem(ROLE_KEY, currentRole);
+  adminPin.value = "";
+  applyRole();
+  showToast("Modo administrador activado");
+});
+
+clearHistoryBtn.addEventListener("click", () => {
+  if (currentRole !== "admin") {
+    showToast("Solo administrador puede borrar historial");
+    return;
+  }
+  if (!confirm("¿Borrar todo el historial guardado en este navegador?")) return;
+  saveHistory([]);
+  renderHistory();
+  showToast("Historial borrado");
 });
 
 cvFileInput.addEventListener("change", (event) => {
@@ -1238,4 +1342,5 @@ historyList.addEventListener("input", (event) => {
   updateHistoryItem(event.target.dataset.historyId, { notes: event.target.value });
 });
 
+applyRole();
 renderHistory();

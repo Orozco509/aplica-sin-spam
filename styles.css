@@ -159,6 +159,70 @@ h1 {
   margin-top: 18px;
 }
 
+.security-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px 140px auto minmax(260px, 1.2fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 34px rgba(20, 32, 51, 0.08);
+}
+
+.security-panel h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.security-panel p,
+.security-panel small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.security-panel label span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.security-panel select,
+.security-panel input[type="password"] {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fbfdff;
+  color: var(--ink);
+}
+
+.consent-check {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+.consent-check input {
+  margin-top: 3px;
+}
+
+.consent-check span {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-transform: none;
+}
+
 .input-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -788,6 +852,7 @@ li {
   }
 
   .hero,
+  .security-panel,
   .input-grid,
   .score-band,
   .details-grid,
