@@ -768,6 +768,114 @@ li {
   line-height: 1.45;
 }
 
+.info-section,
+.trust-section,
+.faq-section {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 34px rgba(20, 32, 51, 0.07);
+}
+
+.info-intro {
+  max-width: 780px;
+}
+
+.info-intro h2,
+.trust-section h2,
+.faq-section h2 {
+  margin: 0;
+  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.info-intro p,
+.trust-section p,
+.faq-section p {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.info-grid,
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.info-grid article,
+.faq-grid article {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(220, 227, 238, 0.9);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.info-number {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--blue);
+  font-weight: 800;
+}
+
+.info-grid h3,
+.faq-grid h3 {
+  margin: 14px 0 8px;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.info-grid p,
+.faq-grid p {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.trust-section {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(280px, 1.05fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.check-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check-list li {
+  position: relative;
+  padding: 12px 12px 12px 40px;
+  border: 1px solid rgba(220, 227, 238, 0.9);
+  border-radius: 8px;
+  background: #fbfdff;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.check-list li::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--green);
+}
+
 .site-footer {
   display: flex;
   justify-content: space-between;
@@ -858,6 +966,9 @@ li {
   .details-grid,
   .message-grid,
   .history-item,
+  .info-grid,
+  .faq-grid,
+  .trust-section,
   .list-pair {
     grid-template-columns: 1fr;
   }
@@ -872,6 +983,12 @@ li {
 
   .section-heading {
     display: block;
+  }
+
+  .info-section,
+  .trust-section,
+  .faq-section {
+    padding: 18px;
   }
 }
 
@@ -896,5 +1013,10 @@ li {
 
   .adapted-actions button {
     width: 100%;
+  }
+
+  .site-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
