@@ -770,6 +770,19 @@ function describeFile(file) {
 function cleanExtractedText(text) {
   return String(text || "")
     .replace(/\r/g, "\n")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/[£€]/g, "")
+    .replace(/\bFequisitos\b/gi, "Requisitos")
+    .replace(/\bfequisitos\b/gi, "requisitos")
+    .replace(/\b0ficina\b/gi, "oficina")
+    .replace(/\b0ffice\b/gi, "Office")
+    .replace(/\b0l\s*izaci[oó]\s*ion\b/gi, "Organización")
+    .replace(/\bO[lI]\s*izaci[oó]\s*ion\b/gi, "Organización")
+    .replace(/\bSa\s+iN\b/gi, "sin")
+    .replace(/\bpe:\b/gi, "")
+    .replace(/\s+==+\s*/g, " ")
+    .replace(/\s+[|]\s*/g, " ")
     .replace(/[|\\]{2,}/g, " ")
     .replace(/[•·●]/g, "\n- ")
     .replace(/\s+n\s+/gi, "\n")
@@ -783,6 +796,41 @@ function cleanExtractedText(text) {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function preprocessCanvasForOcr(sourceCanvas) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
+  context.drawImage(sourceCanvas, 0, 0);
+
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.65 + 128));
+    const value = contrasted > 172 ? 255 : 0;
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
+async function imageFileToCanvas(file) {
+  const bitmap = await createImageBitmap(file);
+  const maxWidth = 1800;
+  const scale = Math.max(1, Math.min(3, maxWidth / bitmap.width));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return preprocessCanvasForOcr(canvas);
 }
 
 function setExtractedText(targetInput, rawText, statusNode, file, sourceName) {
@@ -842,7 +890,8 @@ async function handleImageFile(file, targetInput, statusNode, label) {
 
   statusNode.textContent = `${label}: leyendo imagen... 0%`;
   try {
-    const result = await Tesseract.recognize(file, "spa+eng", {
+    const canvas = await imageFileToCanvas(file);
+    const result = await Tesseract.recognize(canvas, "spa+eng", {
       logger: (event) => {
         if (event.status === "recognizing text") {
           const progress = Math.round((event.progress || 0) * 100);
@@ -879,7 +928,8 @@ async function ocrPdfPage(page, pageNumber, totalPages, statusNode, label) {
   canvas.width = viewport.width;
   canvas.height = viewport.height;
   await page.render({ canvasContext: context, viewport }).promise;
-  const result = await Tesseract.recognize(canvas, "spa+eng", {
+  const processedCanvas = preprocessCanvasForOcr(canvas);
+  const result = await Tesseract.recognize(processedCanvas, "spa+eng", {
     logger: (event) => {
       if (event.status === "recognizing text") {
         const progress = Math.round((event.progress || 0) * 100);
