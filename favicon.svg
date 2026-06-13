@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title>AplicaSinSpam</title>
+  <desc>Escudo azul con documento y marca de verificacion verde.</desc>
+  <rect width="64" height="64" rx="16" fill="#155eef"/>
+  <path d="M32 9 50 16v13c0 12.4-7.2 21-18 26-10.8-5-18-13.6-18-26V16L32 9Z" fill="#ffffff"/>
+  <path d="M25 20h13l6 6v17H25V20Z" fill="#eaf1ff"/>
+  <path d="M38 20v7h7" fill="#bcd1ff"/>
+  <path d="M28 29h10M28 34h7" fill="none" stroke="#155eef" stroke-width="3" stroke-linecap="round"/>
+  <path d="m28 40 5 5 10-13" fill="none" stroke="#0b8f63" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
