@@ -31,15 +31,6 @@ const MIN_ANALYSIS_LENGTH = 20;
 let currentAdaptedCvText = "";
 let currentRole = localStorage.getItem(ROLE_KEY) === "admin" ? "admin" : "user";
 
-const skillKeywords = [
-  "excel", "ventas", "atencion a clientes", "atencion al cliente", "caja", "facturacion",
-  "administracion", "inventarios", "almacen", "logistica", "reclutamiento", "nomina",
-  "contabilidad", "marketing", "redes sociales", "diseno", "photoshop", "canva",
-  "javascript", "react", "html", "css", "sql", "python", "ingles", "liderazgo",
-  "manejo de personal", "chofer", "licencia", "crm", "sap", "office", "word",
-  "powerpoint", "comunicacion", "proactivo", "responsable", "puntual", "organizado"
-];
-
 const suspiciousPatterns = [
   { severity: "red", test: /deposito|dep[oó]sito|anticipo|pago inicial|cuota|inversion|inversi[oó]n|recuperable/i, text: "Piden dinero, depósito, anticipo o inversión. Una vacante real no debería cobrarte por aplicar." },
   { severity: "red", test: /\b(?:ine|identificacion|identificaci[oó]n|curp|rfc)\b.*(?:antes|previo|primero|urgente|whatsapp|wsp|inbox)|(?:manda|envia|envía|comparte).{0,30}\b(?:ine|identificacion|identificaci[oó]n|curp|rfc)\b/i, text: "Piden INE o documentos personales antes de una entrevista formal." },
@@ -50,12 +41,6 @@ const suspiciousPatterns = [
   { severity: "yellow", test: /no\s+entrevista|contratacion\s+inmediata.*sin|contrataci[oó]n\s+inmediata.*sin/i, text: "Ofrecen contratación sin proceso claro." },
   { severity: "yellow", test: /prestamo|pr[eé]stamo|credito|cr[eé]dito|tarjeta|financiamiento/i, text: "La publicación menciona préstamos o créditos; revisa que sea empleo real." }
 ];
-
-const stopWords = new Set([
-  "para", "con", "sin", "por", "una", "uno", "los", "las", "del", "que", "como",
-  "esta", "este", "son", "mas", "muy", "sus", "tus", "debe", "tener", "busca",
-  "solicita", "vacante", "empleo", "trabajo", "zona", "lunes", "viernes"
-]);
 
 function normalize(text) {
   return text
@@ -115,13 +100,22 @@ function applyRole() {
     : "Rol actual: usuario.";
 }
 
+// Conectores que quedan en minúscula salvo al inicio de la frase.
+const TITLE_CONNECTORS = new Set([
+  "a", "de", "del", "la", "las", "los", "el", "y", "e", "o", "u",
+  "en", "con", "para", "por", "al", "da", "the", "of"
+]);
+
 function titleCase(text) {
   if (!text) return "";
-  return text
+  return String(text)
     .toLowerCase()
-    .split(" ")
+    .split(/\s+/)
     .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word, index) =>
+      index > 0 && TITLE_CONNECTORS.has(word)
+        ? word
+        : word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
 
@@ -133,57 +127,576 @@ function firstMatch(text, patterns, fallback = "") {
   return fallback;
 }
 
-function extractCompany(rawJob) {
-  const company = firstMatch(rawJob, [
-    /(?:empresa|compañía|compania|grupo|corporativo|consultoría|consultoria|agencia|marca)\s*[:.-]?\s*([A-ZÁÉÍÓÚÜÑ0-9][\wÁÉÍÓÚÜÑáéíóúüñ.& -]{2,60}?)(?=\s+(?:solicita|solicitamos|busca|buscamos|contrata|contratamos|requiere|vacante)\b|[.,\n|]|$)/i,
-    /(?:somos|para)\s+([A-ZÁÉÍÓÚÜÑ0-9][\wÁÉÍÓÚÜÑáéíóúüñ.& -]{2,60}?)(?=\s+(?:solicita|solicitamos|busca|buscamos|contrata|contratamos|requiere|vacante)\b|[.,\n|]|$)/i,
-    /([A-ZÁÉÍÓÚÜÑ0-9][\wÁÉÍÓÚÜÑáéíóúüñ.& -]{2,45}\s+(?:S\.?\s*A\.?|SA de CV|SAPI|S de RL))/i
-  ]);
-  return titleCase(cleanFact(company)) || "No aparece";
+// ============================================================
+// CAPA DE COMPRENSIÓN LOCAL (Fase 1)
+// Convierte texto crudo / OCR en un MODELO TIPADO y validado.
+// Regla de oro: la generación (mensajes, perfil, CV, compatibilidad)
+// SOLO lee de este modelo, nunca del texto crudo.
+// ============================================================
+
+// Vocabulario de habilidades. Cada habilidad tiene una clave estable,
+// una etiqueta legible y los patrones (sin acentos) con que se reconoce.
+const SKILL_LEXICON = [
+  { clave: "mantenimiento", etiqueta: "mantenimiento", patrones: ["mantenimiento", "mantto"] },
+  { clave: "mecanica", etiqueta: "mecánica", patrones: ["mecanica", "mecanico"] },
+  { clave: "hidraulica", etiqueta: "hidráulica", patrones: ["hidraulica", "hidraulico"] },
+  { clave: "electricidad", etiqueta: "electricidad", patrones: ["electricidad", "electrica", "electrico"] },
+  { clave: "neumatica", etiqueta: "neumática", patrones: ["neumatica", "neumatico"] },
+  { clave: "electromecanica", etiqueta: "electromecánica", patrones: ["electromecanica", "electromecanico"] },
+  { clave: "soldadura", etiqueta: "soldadura", patrones: ["soldadura", "soldar", "soldador"] },
+  { clave: "plc", etiqueta: "PLC", patrones: ["plc"] },
+  { clave: "excel", etiqueta: "Excel", patrones: ["excel"] },
+  { clave: "ventas", etiqueta: "ventas", patrones: ["ventas", "vendedor"] },
+  { clave: "atencion_clientes", etiqueta: "atención a clientes", patrones: ["atencion a clientes", "atencion al cliente", "servicio al cliente"] },
+  { clave: "caja", etiqueta: "manejo de caja", patrones: ["manejo de caja", "cajero"] },
+  { clave: "facturacion", etiqueta: "facturación", patrones: ["facturacion"] },
+  { clave: "administracion", etiqueta: "administración", patrones: ["administracion", "administrativo"] },
+  { clave: "inventarios", etiqueta: "inventarios", patrones: ["inventarios", "inventario"] },
+  { clave: "almacen", etiqueta: "almacén", patrones: ["almacen", "almacenista"] },
+  { clave: "logistica", etiqueta: "logística", patrones: ["logistica"] },
+  { clave: "contabilidad", etiqueta: "contabilidad", patrones: ["contabilidad", "contable", "contador"] },
+  { clave: "nomina", etiqueta: "nómina", patrones: ["nomina"] },
+  { clave: "reclutamiento", etiqueta: "reclutamiento", patrones: ["reclutamiento", "reclutador"] },
+  { clave: "marketing", etiqueta: "marketing", patrones: ["marketing", "mercadotecnia"] },
+  { clave: "redes_sociales", etiqueta: "redes sociales", patrones: ["redes sociales", "community manager"] },
+  { clave: "diseno", etiqueta: "diseño", patrones: ["photoshop", "illustrator", "canva", "diseno grafico"] },
+  { clave: "programacion", etiqueta: "programación", patrones: ["javascript", "python", "programacion", "programador"] },
+  { clave: "office", etiqueta: "Office", patrones: ["office", "word", "powerpoint"] },
+  { clave: "ingles", etiqueta: "inglés", patrones: ["ingles", "bilingue"] },
+  { clave: "crm", etiqueta: "CRM", patrones: ["crm", "salesforce"] },
+  { clave: "sap", etiqueta: "SAP", patrones: ["sap"] },
+  { clave: "conduccion", etiqueta: "conducción / manejo de unidad", patrones: ["chofer", "licencia de conducir", "manejo de unidad", "repartidor"] },
+  { clave: "cocina", etiqueta: "cocina", patrones: ["cocina", "cocinero", "cocinera", "preparacion de alimentos"] },
+  { clave: "limpieza", etiqueta: "limpieza", patrones: ["limpieza", "intendencia"] },
+  { clave: "vigilancia", etiqueta: "vigilancia / seguridad", patrones: ["vigilancia", "guardia de seguridad", "seguridad privada", "vigilante"] },
+  { clave: "montacargas", etiqueta: "montacargas", patrones: ["montacargas", "montacarguista"] },
+  { clave: "enfermeria", etiqueta: "enfermería", patrones: ["enfermeria", "enfermero", "enfermera"] },
+  { clave: "carpinteria", etiqueta: "carpintería", patrones: ["carpinteria", "carpintero"] },
+  { clave: "pintura", etiqueta: "pintura", patrones: ["pintura", "pintor"] },
+  { clave: "albanileria", etiqueta: "albañilería", patrones: ["albanileria", "albanil"] },
+  { clave: "costura", etiqueta: "costura", patrones: ["costura", "costurera", "confeccion"] },
+  { clave: "cobranza", etiqueta: "cobranza", patrones: ["cobranza", "recuperacion de cartera"] },
+  { clave: "call_center", etiqueta: "call center / telefónico", patrones: ["call center", "telemarketing", "telefonista", "centro de atencion telefonica"] },
+  { clave: "recursos_humanos", etiqueta: "recursos humanos", patrones: ["recursos humanos", "capital humano"] },
+  { clave: "jardineria", etiqueta: "jardinería", patrones: ["jardineria", "jardinero"] }
+];
+
+// Vocabulario de prestaciones / beneficios (nunca deben confundirse con la empresa).
+const BENEFIT_LEXICON = [
+  { etiqueta: "Vales de despensa", patrones: ["vales de despensa", "vales despensa", "despensa", "vales"] },
+  { etiqueta: "Fondo de ahorro", patrones: ["fondo de ahorro"] },
+  { etiqueta: "Caja de ahorro", patrones: ["caja de ahorro"] },
+  { etiqueta: "Prestaciones de ley", patrones: ["prestaciones de ley", "prestaciones superiores", "prestaciones"] },
+  { etiqueta: "Utilidades", patrones: ["utilidades", "reparto de utilidades", "ptu"] },
+  { etiqueta: "Aguinaldo", patrones: ["aguinaldo"] },
+  { etiqueta: "Prima vacacional", patrones: ["prima vacacional"] },
+  { etiqueta: "IMSS / Seguro social", patrones: ["imss", "seguro social", "seguridad social"] },
+  { etiqueta: "Seguro de gastos médicos", patrones: ["gastos medicos", "sgmm"] },
+  { etiqueta: "Bonos", patrones: ["bono", "bonos"] },
+  { etiqueta: "Comisiones", patrones: ["comisiones", "comision"] },
+  { etiqueta: "Capacitación", patrones: ["capacitacion"] },
+  { etiqueta: "Transporte / ruta", patrones: ["ruta de personal", "transporte de personal"] },
+  { etiqueta: "Comedor / apoyo de comida", patrones: ["comedor", "apoyo de comida", "vales de comida"] }
+];
+
+// Vocabulario de puestos: detecta el puesto probable de forma limpia
+// (las específicas primero para no confundir "auxiliar administrativo" con "auxiliar").
+const ROLE_LEXICON = [
+  { etiqueta: "Auxiliar administrativo", patrones: ["auxiliar administrativo", "aux administrativo", "auxiliar contable"] },
+  { etiqueta: "Auxiliar de almacén", patrones: ["auxiliar de almacen"] },
+  { etiqueta: "Cajero/a", patrones: ["cajera", "cajero"] },
+  { etiqueta: "Chofer repartidor", patrones: ["chofer repartidor", "repartidor", "chofer"] },
+  { etiqueta: "Asesor de ventas", patrones: ["asesor de ventas", "ejecutivo de ventas", "vendedor", "vendedora"] },
+  { etiqueta: "Almacenista", patrones: ["almacenista"] },
+  { etiqueta: "Mecánico", patrones: ["mecanico"] },
+  { etiqueta: "Soldador", patrones: ["soldador"] },
+  { etiqueta: "Electricista", patrones: ["electricista"] },
+  { etiqueta: "Recepcionista", patrones: ["recepcionista"] },
+  { etiqueta: "Mesero/a", patrones: ["mesero", "mesera"] },
+  { etiqueta: "Cocinero/a", patrones: ["cocinero", "cocinera"] },
+  { etiqueta: "Operador de producción", patrones: ["operador de produccion", "operador de maquina", "operario"] },
+  { etiqueta: "Supervisor", patrones: ["supervisor"] },
+  { etiqueta: "Gerente", patrones: ["gerente"] },
+  { etiqueta: "Ingeniero", patrones: ["ingeniero"] },
+  { etiqueta: "Guardia de seguridad", patrones: ["guardia de seguridad", "vigilante", "elemento de seguridad"] },
+  { etiqueta: "Personal de limpieza", patrones: ["personal de limpieza", "intendencia", "afanador"] },
+  { etiqueta: "Enfermero/a", patrones: ["enfermero", "enfermera"] },
+  { etiqueta: "Agente telefónico", patrones: ["agente telefonico", "call center", "telemarketing", "telefonista"] },
+  { etiqueta: "Montacarguista", patrones: ["montacarguista", "operador de montacargas"] },
+  { etiqueta: "Carpintero", patrones: ["carpintero"] },
+  { etiqueta: "Pintor", patrones: ["pintor"] },
+  { etiqueta: "Albañil", patrones: ["albanil"] },
+  { etiqueta: "Cobrador", patrones: ["cobrador", "gestor de cobranza"] },
+  { etiqueta: "Costurera", patrones: ["costurera"] },
+  { etiqueta: "Ayudante general", patrones: ["ayudante general", "ayudante", "peon"] },
+  { etiqueta: "Técnico", patrones: ["tecnico"] }
+];
+
+// Palabras de giro comercial: si aparecen, puede haber un nombre de empresa
+// aunque no traiga "S.A." (se reporta como "posible", a confirmar).
+const COMPANY_HINTS = [
+  "tienda", "abarrotes", "restaurante", "taqueria", "cafeteria", "boutique",
+  "taller", "farmacia", "ferreteria", "estetica", "hotel", "distribuidora",
+  "comercializadora", "purificadora", "constructora", "inmobiliaria",
+  "refaccionaria", "papeleria", "panaderia", "tortilleria", "carniceria",
+  "autolavado", "gimnasio", "clinica", "veterinaria", "muebleria",
+  "supermercado", "minisuper", "fabrica", "industrias", "transportes"
+];
+
+// LADAs principales de México para inferir ciudad a partir del teléfono.
+const LADA_CIUDAD = {
+  "55": "Ciudad de México", "33": "Guadalajara", "81": "Monterrey",
+  "442": "Querétaro", "222": "Puebla", "662": "Hermosillo", "664": "Tijuana",
+  "656": "Ciudad Juárez", "614": "Chihuahua", "477": "León",
+  "444": "San Luis Potosí", "999": "Mérida", "998": "Cancún",
+  "229": "Veracruz", "228": "Xalapa", "833": "Tampico", "867": "Nuevo Laredo",
+  "844": "Saltillo", "618": "Durango", "443": "Morelia", "311": "Tepic",
+  "312": "Colima", "612": "La Paz", "646": "Ensenada", "686": "Mexicali",
+  "771": "Pachuca", "461": "Celaya", "473": "Guanajuato", "722": "Toluca"
+};
+
+const REQUIREMENT_PRIORITY = {
+  escolaridad: 1, experiencia: 2, habilidad: 2, idioma: 3,
+  licencia: 4, disponibilidad: 5, edad: 6, otro: 7
+};
+
+const PHONE_MATCH = /(?:\+?52[\s.-]?)?(?:\d[\s.-]?){10,12}/g;
+
+// Une elementos en lenguaje natural: ["a","b","c"] -> "a, b y c".
+function joinHuman(items) {
+  const clean = items.filter(Boolean);
+  if (!clean.length) return "";
+  if (clean.length === 1) return clean[0];
+  return `${clean.slice(0, -1).join(", ")} y ${clean[clean.length - 1]}`;
 }
 
-function extractFacts(rawJob) {
-  const job = rawJob.replace(/\s+/g, " ").trim();
-  const normalized = normalize(rawJob);
-  const phone = firstMatch(job, [/(?:\+?52\s?)?(?:\d[\s.-]?){10,13}/]);
-  const email = firstMatch(job, [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i]);
-  const role = firstMatch(job, [
-    /(?:solicito|solicitamos|se solicita|buscamos|contratamos|vacante de|puesto de)\s+([^.,\n|]{3,70})/i,
-    /(?:auxiliar|asesor|ejecutivo|vendedor|chofer|contador|recepcionista|administrativo|gerente|cajero|mesero|barista|programador|disenador|diseñador|almacenista|reclutador)[^.,\n|]{0,60}/i
+// Quita emojis y símbolos pictográficos.
+function stripEmojis(text) {
+  return String(text || "").replace(
+    /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{200D}]/gu,
+    " "
+  );
+}
+
+// Limpia una línea: quita emojis, normaliza MAYÚSCULAS sostenidas, capitaliza.
+function tidyLine(line) {
+  let s = stripEmojis(String(line || "")).replace(/\s+/g, " ").trim().replace(/[.;,:!¡¿?]+$/, "").trim();
+  if (!s) return "";
+  const letters = s.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, "");
+  if (letters.length > 3 && letters === letters.toUpperCase()) s = s.toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Separa una línea en cláusulas: quita la etiqueta "Requisitos:" y parte por
+// comas (no entre dígitos) y por " y " / " e ". Convierte listas en ítems.
+function splitClauses(line) {
+  let s = stripEmojis(line);
+  const label = s.match(/(?:requisitos?|requerimientos?|perfil|ofrecemos)\s*:/i);
+  if (label) s = s.slice(s.indexOf(label[0]) + label[0].length);
+  return s
+    .split(/\s*,(?!\d)\s*|\s+[yYeE]\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 1);
+}
+
+// Reconoce habilidades dentro de un texto y las devuelve tipadas (sin duplicar).
+function detectSkillsInText(rawText) {
+  const norm = normalize(rawText);
+  const found = [];
+  const seen = new Set();
+  SKILL_LEXICON.forEach((skill) => {
+    if (!seen.has(skill.clave) && skill.patrones.some((p) => norm.includes(p))) {
+      seen.add(skill.clave);
+      found.push({ clave: skill.clave, etiqueta: skill.etiqueta });
+    }
+  });
+  return found;
+}
+
+// Reconoce prestaciones dentro de un texto y devuelve etiquetas validadas.
+function detectBenefits(rawText) {
+  const norm = normalize(rawText);
+  const found = [];
+  const seen = new Set();
+  BENEFIT_LEXICON.forEach((benefit) => {
+    if (!seen.has(benefit.etiqueta) && benefit.patrones.some((p) => norm.includes(p))) {
+      seen.add(benefit.etiqueta);
+      found.push(benefit.etiqueta);
+    }
+  });
+  return found;
+}
+
+// Extrae teléfonos como objetos { display, digits }.
+function extractPhones(text) {
+  const found = [];
+  const seen = new Set();
+  (text.match(PHONE_MATCH) || []).forEach((match) => {
+    const digits = match.replace(/\D/g, "");
+    if (digits.length >= 10 && digits.length <= 13 && !seen.has(digits)) {
+      seen.add(digits);
+      const display = match.trim().replace(/\s+/g, " ").replace(/[\s.\-]+$/, "");
+      found.push({ display, digits });
+    }
+  });
+  return found;
+}
+
+// Divide el texto en segmentos (una idea por segmento) sin usar lookbehind.
+function segmentLines(rawText) {
+  return String(rawText || "")
+    .replace(/([.;])\s+/g, "$1\n")
+    .split(/\n|•|·|●|•|·/)
+    .map((s) => s.replace(/^[\s\-*•·.]+/, "").trim())
+    .filter((s) => s.length > 1);
+}
+
+// ¿La línea es esencialmente una prestación (y no un requisito ni habilidad)?
+function isBenefitLine(line) {
+  return detectBenefits(line).length > 0 &&
+    detectSkillsInText(line).length === 0 &&
+    !/experiencia|carrera|tecnic|ingenieri|licencia|edad|disponibilidad|rolar|turno/.test(normalize(line));
+}
+
+// ¿La línea es esencialmente de contacto (teléfono, correo, "informes")?
+function isContactLine(line) {
+  if (extractPhones(line).length || extractEmails(line).length) return true;
+  const norm = normalize(line);
+  return /^(contacto|informes|whatsapp|wsp|enviar cv|mandar cv|interesados)\b/.test(norm) &&
+    detectSkillsInText(line).length === 0;
+}
+
+// Clasifica una línea de requisito en una categoría semántica.
+function classifyRequirementLine(line) {
+  const norm = normalize(line);
+  const skills = detectSkillsInText(line);
+  if (/\bedad\b/.test(norm) || /\b\d{2}\s*(?:a|-|al)\s*\d{2}\b\s*(?:anos|ano)?/.test(norm)) {
+    return { categoria: "edad", skills: [] };
+  }
+  // Escolaridad: exige contexto real de estudios (evita confundir "técnicos" de un eslogan).
+  if (/carrera|ingenieri|licenciatura|bachillerato|preparatoria|secundaria|escolaridad|t[ií]tulo|estudi|carrera tecnica|tecnica\b|tecnico en/.test(norm)) {
+    return { categoria: "escolaridad", skills };
+  }
+  if (/disponibilidad|rolar|rotativ|\bturno|jornada|horario|tiempo completo|medio tiempo/.test(norm)) {
+    return { categoria: "disponibilidad", skills };
+  }
+  if (/licencia/.test(norm)) return { categoria: "licencia", skills };
+  if (/ingles|bilingue|idioma/.test(norm) && skills.length) return { categoria: "idioma", skills };
+  if (/experiencia/.test(norm)) return { categoria: "experiencia", skills };
+  if (skills.length) return { categoria: "habilidad", skills };
+  return { categoria: "otro", skills: [] };
+}
+
+// Construye la lista tipada de requisitos y las habilidades requeridas.
+// Expande listas: "experiencia en mecánica, hidráulica y eléctrica" -> 3 requisitos.
+function buildRequirements(segments) {
+  const requisitos = [];
+  const habilidadesRequeridas = [];
+  const seenSkill = new Set();
+  const seenText = new Set();
+
+  const pushSkill = (skill, texto) => {
+    if (seenSkill.has(skill.clave)) return;
+    seenSkill.add(skill.clave);
+    habilidadesRequeridas.push(skill);
+    requisitos.push({ texto, categoria: "habilidad", clave: skill.clave, esHabilidad: true });
+  };
+
+  segments.forEach((segment) => {
+    if (isBenefitLine(segment) || isContactLine(segment)) return;
+
+    splitClauses(segment).forEach((clause) => {
+      if (isBenefitLine(clause) || isContactLine(clause)) return;
+      const { categoria, skills } = classifyRequirementLine(clause);
+
+      if ((categoria === "experiencia" || categoria === "habilidad" || categoria === "idioma") && skills.length) {
+        skills.forEach((skill, index) => {
+          const texto = index === 0 && categoria === "experiencia"
+            ? `Experiencia en ${skill.etiqueta}`
+            : `Conocimientos de ${skill.etiqueta}`;
+          pushSkill(skill, texto);
+        });
+        return;
+      }
+
+      if (categoria === "licencia") {
+        const key = "licencia de conducir";
+        if (!seenText.has(key)) {
+          seenText.add(key);
+          requisitos.push({ texto: "Licencia de conducir vigente", categoria: "licencia", esHabilidad: false });
+        }
+        return;
+      }
+
+      if (categoria === "otro" && skills.length === 0 &&
+        !/requisito|indispensable|deseable|imprescindible|necesario|debe |manejo de|secundaria|preparatoria/.test(normalize(clause))) {
+        return; // descarta relleno, eslóganes o líneas de título
+      }
+
+      const texto = tidyLine(clause);
+      const key = normalize(texto);
+      if (!texto || texto.length < 3 || seenText.has(key)) return;
+      seenText.add(key);
+      requisitos.push({ texto, categoria, esHabilidad: false });
+    });
+  });
+
+  requisitos.sort((a, b) =>
+    (REQUIREMENT_PRIORITY[a.categoria] || 9) - (REQUIREMENT_PRIORITY[b.categoria] || 9));
+  return { requisitos, habilidadesRequeridas };
+}
+
+// Valida que un texto realmente parezca nombre de empresa (no prestación ni requisito).
+function isValidCompany(text) {
+  const norm = normalize(text);
+  if (norm.length < 3 || norm.length > 50) return false;
+  if (detectBenefits(text).length || detectSkillsInText(text).length) return false;
+  return !/experiencia|requisito|turno|horario|disponibilidad|sueldo|salario|edad|prestacion|ahorro|despensa|utilidades|profesional|tecnic|vacante|solicita|contrata/.test(norm);
+}
+
+// Arregla mayúsculas de formas legales tras el titleCase.
+function fixLegalForms(name) {
+  return name
+    .replace(/s\.?\s*a\.?\s*de\s*c\.?\s*v\.?/i, "S.A. de C.V.")
+    .replace(/\bsapi\b/i, "SAPI")
+    .replace(/\bs\s+de\s+rl(?:\s+de\s+cv)?\b/i, "S. de R.L.");
+}
+
+// Segundo nivel: busca un nombre comercial junto a un giro (tienda, taller, etc.).
+function detectPossibleCompany(rawJob) {
+  const stop = /^(sueldo|salario|pago|horario|requisitos?|prestaciones|vales|despensa|whatsapp|interesados?|solicitamos|solicita|solicito|buscamos|busca|contratamos|contrata|necesita|necesitamos|requiere|ofrece|ofrecemos|zona|experiencia|edad|turno|disponibilidad|para)$/;
+  const tokens = stripEmojis(rawJob).replace(/[!¡¿?,.]/g, " ").split(/\s+/).filter(Boolean);
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!COMPANY_HINTS.includes(normalize(tokens[i]))) continue;
+    const parts = [tokens[i]];
+    for (let j = i + 1; j < tokens.length && parts.length < 5; j += 1) {
+      const nt = normalize(tokens[j]);
+      if (!/^[a-záéíóúüñ&]+$/.test(nt) || stop.test(nt) || /^\d/.test(tokens[j])) break;
+      parts.push(tokens[j]);
+    }
+    if (parts.join("").length >= 6 && parts.length >= 2) {
+      return parts.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+    }
+  }
+  return "";
+}
+
+// Detecta empresa. Devuelve { nombre, certeza }: "alta" (marcador legal/empresa),
+// "posible" (nombre comercial sin marcador), o "ninguna".
+function detectCompany(rawJob) {
+  const markers = [
+    /\b([A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ.& -]{2,45}\s+S\.?\s*A\.?\s*(?:de\s+C\.?\s*V\.?|P\.?\s*I\.?)?)/,
+    /(?:empresa|compa[nñ][ií]a|grupo|corporativo|consultora|agencia|despacho)\s*[:.\-]?\s*([A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ.& -]{2,45}?)(?=[.,\n]|$)/i
+  ];
+  for (const re of markers) {
+    const m = rawJob.match(re);
+    if (m) {
+      const candidate = (m[1] || m[0]).trim();
+      if (isValidCompany(candidate)) {
+        return { nombre: fixLegalForms(titleCase(cleanFact(candidate))), certeza: "alta" };
+      }
+    }
+  }
+  const posible = detectPossibleCompany(rawJob);
+  if (posible) return { nombre: posible, certeza: "posible" };
+  return { nombre: "No detectada con certeza", certeza: "ninguna" };
+}
+
+// Busca un puesto canónico del léxico dentro de un texto.
+function matchRoleLexicon(text) {
+  const norm = normalize(text);
+  for (const role of ROLE_LEXICON) {
+    if (role.patrones.some((p) => norm.includes(p))) return role.etiqueta;
+  }
+  return "";
+}
+
+// Detecta el puesto probable: 1) léxico tras una frase explícita, 2) léxico en
+// todo el texto, 3) inferencia electromecánica. Nunca devuelve texto crudo/emoji.
+function detectRole(rawJob, requiredSkills) {
+  const claves = new Set(requiredSkills.map((s) => s.clave));
+  const electro = ["mecanica", "hidraulica", "electricidad", "neumatica", "electromecanica", "mantenimiento"]
+    .some((c) => claves.has(c));
+  const mentionsTecnico = /\bt[eé]cnico/i.test(rawJob);
+
+  const explicit = firstMatch(rawJob, [
+    /(?:vacante de|puesto de|plaza de|se solicita|solicitamos|solicito|buscamos|busca|contratamos|contrata|necesitamos)\s+([^.,\n|]{3,60})/i
   ]);
-  const city = firstMatch(job, [
-    /(?:ciudad|ubicacion|ubicación|zona|lugar|sucursal)\s*[:.-]?\s*([^.,\n|]{3,55})/i,
-    /(cdmx|ciudad de mexico|monterrey|guadalajara|queretaro|puebla|toluca|tijuana|merida|leon|saltillo|cancun|zapopan|nezahualcoyotl|ecatepec)/i
+  if (explicit) {
+    const fromLex = matchRoleLexicon(explicit);
+    if (fromLex) {
+      if (electro && mentionsTecnico) return "Técnico electromecánico / Técnico de mantenimiento";
+      return fromLex;
+    }
+    const cleaned = titleCase(tidyLine(cleanRole(cleanFact(stripEmojis(explicit).split(/\$|\d/)[0]))));
+    if (cleaned && cleaned.length >= 3 && !detectBenefits(cleaned).length) return cleaned;
+  }
+
+  const fromText = matchRoleLexicon(rawJob);
+  if (fromText) {
+    if (electro && mentionsTecnico) return "Técnico electromecánico / Técnico de mantenimiento";
+    return fromText;
+  }
+  if (electro && mentionsTecnico) return "Técnico electromecánico / Técnico de mantenimiento";
+  return "No detectado con claridad";
+}
+
+function detectCity(rawJob) {
+  const m = firstMatch(rawJob, [
+    /(?:ciudad|ubicacion|ubicaci[oó]n|zona|sucursal)\s*[:.\-]?\s*(cdmx|ciudad de m[eé]xico|monterrey|guadalajara|quer[eé]taro|puebla|toluca|tijuana|m[eé]rida|le[oó]n|saltillo|canc[uú]n|zapopan|apodaca|escobedo|santa catarina|garc[ií]a)/i,
+    /\b(cdmx|monterrey|guadalajara|quer[eé]taro|puebla|toluca|tijuana|m[eé]rida|saltillo|canc[uú]n|zapopan|apodaca|escobedo)\b/i
   ]);
-  const salary = firstMatch(job, [
-    /(?:sueldo|salario|pago|ofrecemos|ingreso)\s*[:.-]?\s*(\$?\s?\d[\d,.\s]*(?:a|-|hasta)?\s?\$?\s?\d*[\d,.\s]*(?:\s?(?:mensuales|mensual|semanales|semana|diarios|dia|quincenal|netos|brutos))?)/i,
-    /\$\s?\d[\d,.\s]*(?:\s?(?:mensuales|mensual|semanales|semana|diarios|dia|quincenal|netos|brutos))?/i
+  return m ? titleCase(tidyLine(cleanFact(m))) : "No detectada";
+}
+
+// Infiere la ciudad a partir de la LADA del teléfono (se marca como aproximada).
+function detectCityFromPhone(phones) {
+  for (const phone of phones) {
+    let digits = phone.digits;
+    if (digits.length === 12 && digits.startsWith("52")) digits = digits.slice(2);
+    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+    if (digits.length !== 10) continue;
+    const two = digits.slice(0, 2);
+    const three = digits.slice(0, 3);
+    if (LADA_CIUDAD[two]) return LADA_CIUDAD[two];
+    if (LADA_CIUDAD[three]) return LADA_CIUDAD[three];
+  }
+  return "";
+}
+
+function detectSalary(rawJob) {
+  const text = stripEmojis(rawJob);
+  // Rango con $ obligatorio: "$10,000 a $12,000 mensuales" (evita confundir teléfonos).
+  const range = text.match(/\$\s?\d{1,3}(?:[,.\s]?\d{3})+\s*(?:a|-|–|hasta)\s*\$?\s?\d{1,3}(?:[,.\s]?\d{3})+\s*(?:mensual(?:es)?|semanal(?:es)?|quincenal(?:es)?|diari[oa]s?|al mes|por mes|netos|brutos)?/i);
+  if (range) return tidyLine(range[0].replace(/\s+/g, " "));
+  const m = firstMatch(text, [
+    /(?:sueldo|salario|pago|ofrecemos|ingreso)\s*(?:de|desde)?\s*[:.\-]?\s*(\$?\s?\d[\d,.\s]*(?:a|-|hasta)?\s?\$?\s?\d*[\d,.\s]*(?:\s?(?:mensual(?:es)?|semanal(?:es)?|quincenal(?:es)?|diari[oa]s?|netos|brutos))?)/i,
+    /\$\s?\d[\d.,]{2,}(?:\s?(?:mensual(?:es)?|semanal(?:es)?|diari[oa]s?))?/i
   ]);
-  const experience = firstMatch(job, [
-    /(?:experiencia)\s*[:.-]?\s*([^.,\n|]{3,80})/i,
-    /(\d+\s*(?:anos|año|años|meses)\s+de\s+experiencia[^.,\n|]*)/i,
-    /(sin experiencia)/i
+  return m ? tidyLine(cleanFact(m)) : "No aparece";
+}
+
+function formatExperience(num, unit) {
+  const n = Number(num);
+  const u = /mes/.test(unit) ? (n === 1 ? "mes" : "meses") : (n === 1 ? "año" : "años");
+  return `${n} ${u} de experiencia`;
+}
+
+function detectExperienceYears(rawJob) {
+  const norm = normalize(rawJob);
+  if (/sin experiencia|no se requiere experiencia|no necesitas experiencia|no es necesaria experiencia|no indispensable experiencia/.test(norm)) {
+    return "No requiere experiencia previa";
+  }
+  // "2 años de experiencia"
+  let m = norm.match(/(\d+)\s*(anos?|meses|mes)\s+de\s+experiencia/);
+  if (m) return formatExperience(m[1], m[2]);
+  // "experiencia (laboral) (mínima) (de) 1 año/6 meses"
+  m = norm.match(/experiencia\s+(?:laboral\s+)?(?:m[ií]nim[ao]\s+)?(?:de\s+)?(\d+)\s*(anos?|meses|mes)/);
+  if (m) return formatExperience(m[1], m[2]);
+  // "mínimo 1 año ... experiencia"
+  m = norm.match(/(?:m[ií]nimo|al menos)\s+(\d+)\s*(anos?|meses|mes)/);
+  if (m && /experiencia/.test(norm)) return formatExperience(m[1], m[2]);
+  return "No especificada";
+}
+
+function detectSchedule(rawJob) {
+  const norm = normalize(rawJob);
+  if (/rolar turnos?|turnos? rotativos?|rotar turnos?/.test(norm)) return "Turnos rotativos";
+  if (/disponibilidad de horario|horarios? flexibles?|horario flexible/.test(norm)) return "Horario flexible";
+  const dias = firstMatch(rawJob, [
+    /(lunes\s+a\s+(?:viernes|s[aá]bado|sabado|domingo)[^.,\n|]{0,35})/i
   ]);
-  const schedule = firstMatch(job, [
-    /(?:horario|turno|jornada)\s*[:.-]?\s*([^.,\n|]{3,90})/i,
-    /(lunes\s+a\s+viernes[^.,\n|]{0,60})/i,
-    /(tiempo\s+completo|medio\s+tiempo|home\s+office|hibrido|presencial)/i
-  ]);
-  const contact = [phone, email].filter(Boolean).join(" / ") || firstMatch(job, [
-    /(?:contacto|informes|whatsapp|wsp|wa)\s*[:.-]?\s*([^.,\n|]{3,90})/i
-  ]);
+  if (dias) return titleCase(tidyLine(dias));
+  const tipo = firstMatch(rawJob, [/(tiempo completo|medio tiempo|home office|h[ií]brido|presencial)/i]);
+  if (tipo) return titleCase(tidyLine(tipo));
+  const generic = firstMatch(rawJob, [/(?:horario|turno|jornada)\s*[:.\-]?\s*([^.,\n|]{3,50})/i]);
+  if (generic && !/\$|sueldo|salario|\bpago\b|comisi|despensa|ahorro/.test(normalize(generic))) {
+    return titleCase(tidyLine(cleanFact(generic)));
+  }
+  return "No especificado";
+}
+
+// Construye el MODELO TIPADO de la vacante.
+function buildVacancyModel(rawJob) {
+  const segments = segmentLines(rawJob);
+  const { requisitos, habilidadesRequeridas } = buildRequirements(segments);
+  const beneficios = detectBenefits(rawJob);
+  const telefonos = extractPhones(rawJob);
+  const correos = extractEmails(rawJob);
+  const display = [...telefonos.map((p) => p.display), ...correos].join(" / ") || "No aparece";
+  const empresaInfo = detectCompany(rawJob);
+
+  let ciudad = detectCity(rawJob);
+  let ciudadAprox = false;
+  if (ciudad === "No detectada") {
+    const porLada = detectCityFromPhone(telefonos);
+    if (porLada) { ciudad = porLada; ciudadAprox = true; }
+  }
 
   return {
-    role: titleCase(cleanRole(cleanFact(role))) || "No detectado",
-    company: extractCompany(rawJob),
-    city: titleCase(cleanFact(city)) || "No detectada",
-    salary: cleanFact(salary) || "No aparece",
-    experience: cleanFact(experience) || "No especificada",
-    schedule: cleanFact(schedule) || "No especificado",
-    contact: cleanFact(contact) || "No aparece",
-    phone: phone ? phone.replace(/[^\d+]/g, "") : "",
-    normalized
+    raw: rawJob,
+    puesto: detectRole(rawJob, habilidadesRequeridas),
+    empresa: empresaInfo.nombre,
+    empresaCerteza: empresaInfo.certeza,
+    ciudad,
+    ciudadAprox,
+    sueldo: detectSalary(rawJob),
+    experiencia: detectExperienceYears(rawJob),
+    horario: detectSchedule(rawJob),
+    contacto: { telefonos, correos, display },
+    requisitos,
+    habilidadesRequeridas,
+    beneficios
   };
+}
+
+// Construye el MODELO TIPADO del candidato (solo habilidades validadas).
+function buildCandidateModel(rawCv) {
+  const norm = normalize(rawCv);
+  return {
+    raw: rawCv,
+    habilidades: detectSkillsInText(rawCv),
+    tieneEstudios: /carrera|tecnic|ingenier|licenciad|licenciatura|bachillerato|preparatoria|secundaria|t[ií]tulo|estudi|egresad|pasante/.test(norm),
+    tieneLicencia: /licencia\s+(?:de\s+)?(?:conducir|manejo|chofer)|licencia\s+(?:tipo|vigente)|licencia\s+de\s+conducir/.test(norm),
+    tieneDisponibilidad: /disponibilidad|disponible|horario\s+flexible|rolar|turnos?|tiempo\s+completo/.test(norm)
+  };
+}
+
+// Compatibilidad honesta: compara solo habilidades reales contra requisitos de habilidad.
+function computeCompatibility(vacancy, candidate) {
+  const candidateClaves = new Set(candidate.habilidades.map((s) => s.clave));
+  const matched = [];
+  const missing = [];
+
+  let credReqs = 0;
+  let credHits = 0;
+  vacancy.requisitos.forEach((req) => {
+    if (req.categoria === "edad" || req.categoria === "disponibilidad") return; // informativos
+    if (req.esHabilidad && req.clave) {
+      (candidateClaves.has(req.clave) ? matched : missing).push(req.texto);
+      return;
+    }
+    if (req.categoria === "escolaridad") {
+      credReqs += 1;
+      if (candidate.tieneEstudios) { credHits += 1; matched.push(req.texto); } else missing.push(req.texto);
+      return;
+    }
+    if (req.categoria === "licencia") {
+      credReqs += 1;
+      if (candidate.tieneLicencia) { credHits += 1; matched.push(req.texto); } else missing.push(req.texto);
+    }
+    // otro queda informativo
+  });
+
+  const requiredSkills = vacancy.habilidadesRequeridas;
+  const matchedSkills = requiredSkills.filter((s) => candidateClaves.has(s.clave));
+  const skillScore = requiredSkills.length ? matchedSkills.length / requiredSkills.length : 0.3;
+  const credScore = credReqs ? credHits / credReqs : 0.5; // neutral si la vacante no pide credenciales
+  const infoScore = [vacancy.puesto, vacancy.ciudad, vacancy.sueldo, vacancy.horario, vacancy.contacto.display]
+    .filter((v) => v && !/^No /.test(v)).length / 5;
+
+  const score = Math.max(0, Math.min(100, Math.round(skillScore * 70 + credScore * 15 + infoScore * 15)));
+  return { matched, missing, matchedSkills, skillScore, score };
 }
 
 function cleanFact(value) {
@@ -200,10 +713,18 @@ function cleanRole(value) {
     .trim();
 }
 
+// Solo cuenta cantidades que sean dinero: con "$" delante o con palabra de
+// pago detrás. Evita confundir teléfonos o números sueltos con sueldos.
 function extractMoneyAmounts(text) {
-  return [...text.matchAll(/\$?\s?(\d{1,3}(?:[,\s.]\d{3})+|\d{4,6})/g)]
-    .map((match) => Number(match[1].replace(/[,\s.]/g, "")))
-    .filter((amount) => Number.isFinite(amount));
+  const amounts = [];
+  const re = /\$\s?(\d{1,3}(?:[,\s.]\d{3})+|\d{3,6})|(\d{1,3}(?:[,\s.]\d{3})+|\d{4,6})\s*(?:pesos|mxn|mensual(?:es)?|semanal(?:es)?|quincenal(?:es)?|diari[oa]s?|al mes|al dia|por dia|por semana)/gi;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const raw = match[1] || match[2] || "";
+    const amount = Number(raw.replace(/[,\s.]/g, ""));
+    if (Number.isFinite(amount)) amounts.push(amount);
+  }
+  return amounts;
 }
 
 function hasLowExperience(text) {
@@ -369,73 +890,28 @@ function evaluateVacancyRisk(rawJob, facts) {
   };
 }
 
-function extractRequirements(rawJob) {
-  const lines = rawJob
-    .split(/\n|•|- |\* /)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 2);
-  const requirementLines = lines.filter((line) =>
-    /requisito|experiencia|conocimiento|manejo|licencia|disponibilidad|edad|sexo|escolaridad|bachillerato|licenciatura|indispensable|deseable|excel|ingles|office|ventas|cliente|almacen|caja/i.test(line)
-  );
-  const keywordRequirements = skillKeywords.filter((keyword) => normalize(rawJob).includes(keyword));
-  const merged = [...requirementLines, ...keywordRequirements.map(titleCase)];
-  const unique = [...new Map(merged.map((item) => [normalize(item), item])).values()];
-  return unique.slice(0, 12);
-}
-
-function extractProfileSignals(rawCv) {
-  const normalizedCv = normalize(rawCv);
-  const words = normalizedCv
-    .split(" ")
-    .filter((word) => word.length > 3 && !stopWords.has(word));
-  const commonSkills = skillKeywords.filter((skill) => normalizedCv.includes(skill));
-  const frequency = words.reduce((map, word) => {
-    map[word] = (map[word] || 0) + 1;
-    return map;
-  }, {});
-  const topWords = Object.entries(frequency)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([word]) => word);
-  return [...new Set([...commonSkills, ...topWords])].slice(0, 12);
-}
-
 function analyze(cv, job) {
-  const facts = extractFacts(job);
-  const requirements = extractRequirements(job);
-  const normalizedCv = normalize(cv);
-  const normalizedJob = normalize(job);
-  const profileSignals = extractProfileSignals(cv);
-  const matched = [];
-  const missing = [];
+  // 1) COMPRENDER: construir modelos tipados antes de generar nada.
+  const vacancy = buildVacancyModel(job);
+  const candidate = buildCandidateModel(cv);
+  const compat = computeCompatibility(vacancy, candidate);
 
-  requirements.forEach((requirement) => {
-    const normalizedRequirement = normalize(requirement);
-    const requirementWords = normalizedRequirement
-      .split(" ")
-      .filter((word) => word.length > 3 && !stopWords.has(word));
-    const hits = requirementWords.filter((word) => normalizedCv.includes(word));
-    if (normalizedCv.includes(normalizedRequirement) || hits.length >= Math.max(1, Math.ceil(requirementWords.length * 0.45))) {
-      matched.push(requirement);
-    } else {
-      missing.push(requirement);
-    }
-  });
+  // 2) Adaptar al formato de "datos detectados" que muestra la interfaz.
+  const facts = {
+    role: vacancy.puesto,
+    company: vacancy.empresaCerteza === "posible" ? `${vacancy.empresa} (posible, confirmar)` : vacancy.empresa,
+    city: vacancy.ciudadAprox ? `${vacancy.ciudad} (aprox. por LADA)` : vacancy.ciudad,
+    salary: vacancy.sueldo,
+    experience: vacancy.experiencia,
+    schedule: vacancy.horario,
+    contact: vacancy.contacto.display,
+    phone: vacancy.contacto.telefonos[0]?.digits || ""
+  };
 
-  const jobKeywords = [...new Set([
-    ...skillKeywords.filter((keyword) => normalizedJob.includes(keyword)),
-    ...normalizedJob.split(" ").filter((word) => word.length > 5 && !stopWords.has(word)).slice(0, 25)
-  ])];
-  const keywordHits = jobKeywords.filter((keyword) => normalizedCv.includes(keyword));
-  const reqScore = requirements.length ? matched.length / requirements.length : 0.35;
-  const keywordScore = jobKeywords.length ? keywordHits.length / jobKeywords.length : 0.25;
-  const infoScore = ["role", "city", "salary", "experience", "schedule", "contact"]
-    .filter((key) => !facts[key].startsWith("No ")).length / 6;
   const riskResult = evaluateVacancyRisk(job, facts);
   const alerts = riskResult.alerts.map((item) => item.text);
 
-  let score = Math.round(reqScore * 58 + keywordScore * 30 + infoScore * 12);
-  score = Math.max(0, Math.min(100, score));
+  let score = compat.score;
   if (riskResult.risk.level === "yellow") score = Math.max(0, score - 8);
   if (riskResult.risk.level === "red") score = Math.max(0, score - 18);
 
@@ -454,48 +930,86 @@ function analyze(cv, job) {
 
   return {
     facts,
-    requirements,
-    matched,
-    missing,
+    requirements: vacancy.requisitos.map((r) => r.texto),
+    beneficios: vacancy.beneficios,
+    matched: compat.matched,
+    missing: compat.missing,
     alerts,
     risk: riskResult.risk,
     score,
     recommendation,
     reason,
-    profileSignals
+    model: vacancy,
+    candidate,
+    match: compat
   };
+}
+
+// Frase de habilidades para los mensajes: SOLO etiquetas validadas del modelo.
+// Si el CV coincide, usa las habilidades del candidato; si no, las que pide la vacante.
+function buildSkillPhrase(data, limit) {
+  const matchedLabels = data.match.matchedSkills.map((s) => s.etiqueta);
+  const requiredLabels = data.model.habilidadesRequeridas.map((s) => s.etiqueta);
+  const labels = (matchedLabels.length ? matchedLabels : requiredLabels).slice(0, limit);
+  return joinHuman(labels);
+}
+
+// ¿La vacante pide formación técnica o ingeniería?
+function requiereFormacionTecnica(data) {
+  return data.model.requisitos.some((r) =>
+    r.categoria === "escolaridad" && /tecnic|ingenieri/.test(normalize(r.texto)));
+}
+
+// Intro del perfil con concordancia natural según haya o no formación técnica.
+function perfilIntro(data, conHabilidades) {
+  const tecnica = requiereFormacionTecnica(data);
+  if (conHabilidades) {
+    return tecnica
+      ? "Profesional con formación técnica y experiencia relacionada"
+      : "Profesional con experiencia relacionada";
+  }
+  return tecnica ? "Profesional con formación técnica" : "Profesional";
+}
+
+function buildProfile(data) {
+  const role = /^No /.test(data.model.puesto) ? "el puesto" : data.model.puesto;
+  const skillPhrase = buildSkillPhrase(data, 5);
+  const base = skillPhrase
+    ? `${perfilIntro(data, true)} en ${skillPhrase}.`
+    : `${perfilIntro(data, false)} con interés en ${role}.`;
+  return `${base} Me caracterizo por responsabilidad, comunicación clara y disposición para aprender procesos nuevos con rapidez. Busco aportar a ${role} con compromiso y enfoque en resultados.`;
 }
 
 function createMessages(data) {
-  const role = data.facts.role === "No detectado" ? "la vacante" : data.facts.role;
-  const city = data.facts.city === "No detectada" ? "" : ` en ${data.facts.city}`;
-  const matchedText = data.matched.slice(0, 3).join(", ") || data.profileSignals.slice(0, 3).join(", ") || "experiencia relacionada";
-  const phoneNote = data.facts.phone ? "" : "No detecté número de WhatsApp en la publicación; usa este texto si te comparten uno.";
+  const role = /^No /.test(data.model.puesto) ? "la vacante" : data.model.puesto;
+  const city = (/^No /.test(data.model.ciudad) || data.model.ciudadAprox) ? "" : ` en ${data.model.ciudad}`;
+  const skillPhrase = buildSkillPhrase(data, 3);
+  const formacion = requiereFormacionTecnica(data) ? "formación técnica y " : "";
+  const expClause = skillPhrase
+    ? `Cuento con ${formacion}experiencia relacionada en ${skillPhrase}. `
+    : "";
 
   return {
-    comment: `Hola, me interesa la vacante de ${role}${city}. Tengo experiencia en ${matchedText}. ¿Me podrían compartir más información del proceso y a dónde envío mi CV?`,
-    inbox: `Hola, buen día. Vi su publicación sobre la vacante de ${role}${city} y me interesa postularme.\n\nCuento con experiencia relacionada en ${matchedText}. Me gustaría confirmar si la vacante sigue disponible, el rango salarial, horario, ubicación y los siguientes pasos del proceso.\n\nQuedo atento(a). Muchas gracias.`,
-    whatsapp: `${phoneNote ? phoneNote + "\n\n" : ""}Hola, buen día. Les escribo por la vacante de ${role}${city} que vi en Facebook. Me interesa postularme y cuento con experiencia en ${matchedText}. ¿Me podrían confirmar si sigue disponible, sueldo, horario y ubicación? Gracias.`,
-    profile: `Perfil profesional sugerido:\n\nProfesional con experiencia en ${matchedText}, orientado(a) a resultados, comunicación clara y seguimiento responsable. Me interesa la posición de ${role}${city} porque mi experiencia se alinea con los requisitos detectados y puedo aportar organización, aprendizaje rápido y compromiso con el proceso.`
+    comment: `Hola, buen día. Me interesa la vacante de ${role}${city}. ${expClause}¿Podrían confirmarme si sigue disponible y a dónde envío mi CV?`,
+    inbox: `Hola, buen día. Vi su publicación sobre la vacante de ${role}${city} y me interesa postularme.\n\n${expClause}Me gustaría confirmar si la vacante sigue disponible, así como sueldo, horario, ubicación y los siguientes pasos del proceso.\n\nQuedo atento(a). Muchas gracias.`,
+    whatsapp: `Hola, buen día. Le escribo por la vacante de ${role}${city} que vi en Facebook. ${expClause}¿Me podría confirmar si sigue disponible y a dónde puedo enviar mi CV? Gracias.`,
+    profile: buildProfile(data)
   };
 }
 
-function createAdaptedCv(data, cvText) {
-  const role = data.facts.role === "No detectado" ? "la vacante" : data.facts.role;
-  const company = data.facts.company === "No aparece" ? "la empresa" : data.facts.company;
-  const city = data.facts.city === "No detectada" ? "" : ` en ${data.facts.city}`;
-  const relevantSkills = [...new Set([
-    ...data.matched.map((item) => cleanRole(cleanFact(item))),
-    ...data.profileSignals,
-    ...skillKeywords.filter((keyword) => normalize(cvText).includes(keyword))
-  ])]
-    .filter(Boolean)
-    .slice(0, 10);
-  const skillText = relevantSkills.length ? relevantSkills.join(", ") : "comunicación, seguimiento, responsabilidad y aprendizaje rápido";
-  const requirementsText = data.requirements.length ? data.requirements.slice(0, 5).join("; ") : "los requisitos principales de la publicación";
-  const missingText = data.missing.length ? data.missing.slice(0, 3).join("; ") : "no se detectaron faltantes fuertes";
-  const matchedText = data.matched.length ? data.matched.slice(0, 5).join("; ") : skillText;
-
+function createAdaptedCv(data) {
+  const role = /^No /.test(data.model.puesto) ? "la vacante" : data.model.puesto;
+  const company = /^No /.test(data.model.empresa) ? "la empresa" : data.model.empresa;
+  const city = (/^No /.test(data.model.ciudad) || data.model.ciudadAprox) ? "" : ` en ${data.model.ciudad}`;
+  const skillPhrase = buildSkillPhrase(data, 6) || "responsabilidad, organización y aprendizaje rápido";
+  const matchedLabels = data.match.matchedSkills.map((s) => s.etiqueta);
+  const habilidades = (matchedLabels.length
+    ? matchedLabels
+    : data.model.habilidadesRequeridas.map((s) => s.etiqueta)).slice(0, 8);
+  const requisitosClave = data.model.requisitos
+    .filter((r) => r.categoria === "habilidad" || r.categoria === "escolaridad")
+    .map((r) => r.texto)
+    .slice(0, 6);
   return `CV ADAPTADO A LA VACANTE
 
 Puesto objetivo: ${role}${city}
@@ -503,27 +1017,24 @@ Empresa: ${company}
 Compatibilidad estimada: ${data.score}%
 
 PERFIL PROFESIONAL
-Profesional con experiencia y habilidades alineadas a ${role}, con enfoque en ${skillText}. Me caracterizo por comunicarme con claridad, dar seguimiento responsable a las tareas y adaptarme rápido a las necesidades del puesto. Busco aportar valor en ${company} con una actitud profesional, ordenada y orientada a resultados.
+${perfilIntro(data, true)} en ${skillPhrase}. Me caracterizo por responsabilidad, comunicación clara y disposición para aprender procesos nuevos con rapidez. Busco aportar a ${company} con una actitud profesional, ordenada y orientada a resultados.
 
 HABILIDADES RELEVANTES
-${relevantSkills.map((skill) => `- ${titleCase(skill)}`).join("\n") || "- Comunicación clara\n- Organización\n- Atención al detalle\n- Aprendizaje rápido"}
+${habilidades.length ? habilidades.map((skill) => `- ${titleCase(skill)}`).join("\n") : "- Comunicación clara\n- Organización\n- Atención al detalle\n- Aprendizaje rápido"}
 
-EXPERIENCIA REDACTADA MEJOR
-- He realizado actividades relacionadas con ${matchedText}, cuidando la atención, el seguimiento y la calidad del trabajo.
-- Puedo apoyar en tareas clave del puesto como ${requirementsText}, manteniendo comunicación constante y buena organización.
-- Mi experiencia previa me permite integrarme con rapidez, aprender procesos internos y cumplir objetivos con responsabilidad.
-- Si algún requisito no aparece claramente en mi CV (${missingText}), puedo aclararlo en entrevista o reforzarlo antes de avanzar.
+EXPERIENCIA ALINEADA A LA VACANTE
+${requisitosClave.length ? requisitosClave.map((req) => `- ${req}`).join("\n") : "- Actividades relacionadas con el puesto, con seguimiento y calidad."}
 
 MENSAJE PARA RH
-Hola, buen día. Me interesa postularme a la vacante de ${role}${city}. Revisé los requisitos y mi perfil coincide especialmente con ${matchedText}. Me gustaría compartir mi CV adaptado y confirmar si la vacante sigue disponible, así como los siguientes pasos del proceso. Quedo atento(a), muchas gracias.
+${createMessages(data).inbox}
 
 RESPUESTAS A POSIBLES PREGUNTAS DE ENTREVISTA
 
 1. ¿Por qué te interesa esta vacante?
-Me interesa porque el puesto de ${role} se relaciona con mi experiencia en ${skillText}. Creo que puedo aportar desde el primer momento y seguir desarrollándome dentro del equipo.
+Me interesa porque ${role} se relaciona con mi experiencia en ${skillPhrase}. Creo que puedo aportar desde el primer momento y seguir desarrollándome dentro del equipo.
 
 2. ¿Qué experiencia tienes relacionada con el puesto?
-Tengo experiencia o habilidades relacionadas con ${matchedText}. He trabajado con enfoque en responsabilidad, atención al detalle y cumplimiento de tareas.
+Tengo experiencia o conocimientos en ${skillPhrase}, con enfoque en responsabilidad, atención al detalle y cumplimiento de tareas.
 
 3. ¿Qué harías si no dominas alguna herramienta o requisito?
 Primero lo comunicaría con claridad, después pediría contexto o capacitación puntual y practicaría hasta alcanzar el nivel esperado. Aprendo rápido y me gusta documentar procesos para mejorar.
@@ -807,6 +1318,7 @@ function render(data) {
   renderList("#missingList", data.missing, "No hay faltantes evidentes segun el texto pegado.");
   renderList("#alertsList", data.alerts, "No detecté alertas fuertes, pero verifica la empresa antes de compartir datos.");
   renderList("#requirementsList", data.requirements, "La publicación no trae requisitos claros.");
+  renderList("#benefitsList", data.beneficios || [], "No se mencionan prestaciones o beneficios.");
 
   const messages = createMessages(data);
   document.querySelector("#commentMsg").value = messages.comment;
@@ -814,7 +1326,7 @@ function render(data) {
   document.querySelector("#whatsappMsg").value = messages.whatsapp;
   document.querySelector("#profileMsg").value = messages.profile;
 
-  currentAdaptedCvText = createAdaptedCv(data, cvInput.value);
+  currentAdaptedCvText = createAdaptedCv(data);
   document.querySelector("#adaptedCvText").value = currentAdaptedCvText;
 }
 
